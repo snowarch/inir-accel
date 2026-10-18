@@ -1,5 +1,6 @@
-//! `generate_colors_material.py` is not ported yet. Until a port matches it byte for byte (test/parity.py), the
-//! venv shim hands every call to the real Python, so this machine wears the original Material colours.
+//! `generate_colors_material.py`, ported byte for byte (test/parity.py material, test/material_stages.py,
+//! test/material_pixels.py). The shim answers only for the exact script and library versions it was transcribed
+//! from; anything else, and the few inputs the port leaves alone, run the original.
 
 mod hct;
 mod pixels;
@@ -7,6 +8,7 @@ mod planes;
 mod py;
 mod quantize;
 mod scheme;
+mod script;
 
 /// The exit code that tells the shim to run the original script instead.
 pub const DELEGATE: i32 = 125;
@@ -77,6 +79,66 @@ pub fn probe(args: &[String]) -> i32 {
 
 const PROBE_TONES: [f64; 16] = [0.0, 4.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 98.0, 99.0, 100.0];
 
+/// The script the port was transcribed from: any other text is the original's to run.
+const SCRIPT_FNV: u64 = 0x4affdddb02445603;
+
+/// Versions the transcription matches (Pillow's resampler and warnings, numpy's sums, materialyoucolor's maths).
+const LIBRARIES: [&str; 3] = ["materialyoucolor-3.0.4.dist-info", "pillow-12.3.0.dist-info", "numpy-2.5.4.dist-info"];
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// The venv the shim stands in: `INIR_VENV`, else the directory above the `bin/` it was called from, else the
+/// shell's default.
+fn venv_dir() -> std::path::PathBuf {
+    if let Some(v) = std::env::var_os("INIR_VENV").filter(|v| !v.is_empty()) {
+        return v.into();
+    }
+    if let Some(dir) = std::env::args_os().next().map(std::path::PathBuf::from).and_then(|p| p.parent()?.parent().map(|p| p.to_path_buf())) {
+        if dir.join("pyvenv.cfg").is_file() {
+            return dir;
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    std::path::PathBuf::from(format!("{home}/.local/state/quickshell/.venv"))
+}
+
+/// `site-packages` of the venv when it carries the exact libraries, as the original imports them.
+fn site_packages() -> Option<String> {
+    let lib = venv_dir().join("lib");
+    let site = std::fs::read_dir(&lib)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("site-packages"))
+        .find(|p| p.join("materialyoucolor").is_dir())?;
+    LIBRARIES.iter().all(|d| site.join(d).is_dir()).then(|| site.to_string_lossy().into_owned())
+}
+
+/// The venv shim's entry: `script` is the path Python was asked to run.
+pub fn run_script(script: &str, args: &[String]) -> i32 {
+    match std::fs::read(script) {
+        Ok(text) if fnv1a(&text) == SCRIPT_FNV => {}
+        _ => return DELEGATE,
+    }
+    run_cli(args)
+}
+
+/// `inir-accel material-colors ...`, the script's arguments without the script check.
+pub fn run_cli(args: &[String]) -> i32 {
+    let Some(site_packages) = site_packages() else { return DELEGATE };
+    match script::run(args, &script::Context { site_packages }) {
+        script::Run::Exit(code) => code,
+        script::Run::Delegate => DELEGATE,
+    }
+}
+
+/// The QML plugin's in-process entry (`InirNative.generateMaterialColors`), which nothing in the shell calls: the
+/// script's stdout and effects belong to a process, so it stays an error rather than a second, diverging pipeline.
 #[derive(Clone, Debug)]
 pub struct MaterialGenConfig {
     pub path: Option<String>,
@@ -94,9 +156,5 @@ impl Default for MaterialGenConfig {
 }
 
 pub fn run_material_pipeline(_cfg: MaterialGenConfig) -> Result<String, String> {
-    Err("Material is not ported yet: run scripts/colors/generate_colors_material.py".into())
-}
-
-pub fn run_cli(_args: &[String]) -> i32 {
-    DELEGATE
+    Err("run scripts/colors/generate_colors_material.py (inir-accel answers it through the venv shim)".into())
 }

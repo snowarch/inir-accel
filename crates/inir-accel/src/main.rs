@@ -182,7 +182,7 @@ fn handle_python_shim(args: &[String]) -> ! {
         "generate_colors_material.py" => {
             // The port answers everything the original does, errors included; only what it does not cover
             // (a GIF's second frame, --debug) goes to the real Python.
-            let code = cmd_material_colors(script_args);
+            let code = material::run_script(&args[idx], script_args);
             if code != material::DELEGATE {
                 std::process::exit(code);
             }

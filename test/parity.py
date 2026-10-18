@@ -369,7 +369,7 @@ def material_suite(work: Path, quick: bool, jobs: int):
                                                       (b / "out/roles/iris-surface.json").write_text(json.dumps(r))))
             setup = (lambda b: [f(b) for f in setups]) if setups else None
             exe = [str(REAL_PY), "-E", str(script)] if side == "orig" else [str(shim / "python3"), "-E", str(script)]
-            res.append(run(exe + args, base, setup=setup, extra_env={"INIR_REAL_PYTHON": str(stub)} if side == "port" else None))
+            res.append(run(exe + args, base, setup=setup, extra_env={"INIR_REAL_PYTHON": str(stub), "INIR_VENV": str(VENV)} if side == "port" else None))
         # A traceback or an argparse message is Python's wording; there the code, stdout and the files count.
         what = ("rc", "stdout", "files") if kind in ("missing-file", "bad-flag", "bad-mode") else ("rc", "stdout", "stderr", "files")
         shutil.rmtree(work / "material" / str(i), ignore_errors=True)

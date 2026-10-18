@@ -14,7 +14,12 @@ pub struct Image {
     pub height: usize,
     pub channels: usize,
     pub data: Vec<u8>,
+    /// A palette whose tRNS is not a single clear entry: Pillow keeps it as bytes and `convert("RGB")` warns.
+    pub warns_palette_transparency: bool,
 }
+
+/// Past `Image.MAX_IMAGE_PIXELS` Pillow warns (DecompressionBombWarning) or refuses: the original says it.
+const MAX_IMAGE_PIXELS: usize = 1024 * 1024 * 1024 / 4 / 3;
 
 pub enum Load {
     Ok(Image),
@@ -44,17 +49,17 @@ pub fn open(path: &str) -> Load {
 }
 
 /// Bit depth, colour type and tRNS presence, read from the chunks (the `image` crate expands them before we see it).
-fn png_header(bytes: &[u8]) -> Option<(u8, u8, bool)> {
+fn png_header(bytes: &[u8]) -> Option<(u8, u8, Option<Vec<u8>>)> {
     let mut pos = 8;
     let mut header = None;
-    let mut trns = false;
+    let mut trns = None;
     while pos + 8 <= bytes.len() {
         let len = u32::from_be_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
         let kind = &bytes[pos + 4..pos + 8];
         let body = bytes.get(pos + 8..pos + 8 + len)?;
         match kind {
             b"IHDR" if body.len() >= 10 => header = Some((body[8], body[9])),
-            b"tRNS" => trns = true,
+            b"tRNS" => trns = Some(body.to_vec()),
             b"IDAT" | b"IEND" => break,
             _ => {}
         }
@@ -74,6 +79,9 @@ fn png(bytes: &[u8]) -> Option<Image> {
     };
     let dynimg = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?;
     let (w, h) = (dynimg.width() as usize, dynimg.height() as usize);
+    if w * h > MAX_IMAGE_PIXELS {
+        return None;
+    }
     let raw: Vec<u8> = match &dynimg {
         image::DynamicImage::ImageLuma8(b) => b.as_raw().clone(),
         image::DynamicImage::ImageLumaA8(b) => b.as_raw().chunks_exact(2).map(|p| p[0]).collect(),
@@ -91,17 +99,20 @@ fn png(bytes: &[u8]) -> Option<Image> {
             return None;
         }
         let data = raw.iter().flat_map(|&v| [v, v, v]).collect();
-        return Some(Image { width: w, height: h, channels: 3, data });
+        return Some(Image { width: w, height: h, channels: 3, data, warns_palette_transparency: false });
     }
     // RGBA stays RGBA. RGB with tRNS stays RGB in Pillow, and a palette goes through p2rgb, which ignores the
     // transparency: the alpha the `image` crate made up is dropped.
     let rgba = colour == 6;
     match (rgba, in_channels) {
-        (true, 4) => Some(Image { width: w, height: h, channels: 4, data: raw }),
-        (false, 3) => Some(Image { width: w, height: h, channels: 3, data: raw }),
-        (false, 4) if trns || colour == 3 => {
+        (true, 4) => Some(Image { width: w, height: h, channels: 4, data: raw, warns_palette_transparency: false }),
+        (false, 3) => Some(Image { width: w, height: h, channels: 3, data: raw, warns_palette_transparency: false }),
+        (false, 4) if trns.is_some() || colour == 3 => {
             let data = raw.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
-            Some(Image { width: w, height: h, channels: 3, data })
+            // PngImagePlugin keeps a palette's tRNS as an index when it matches ^\xff*\x00\xff*$, as bytes otherwise.
+            let simple = trns.as_ref().is_some_and(|t| t.iter().filter(|&&b| b == 0).count() == 1 && t.iter().all(|&b| b == 0 || b == 0xFF));
+            let warns = colour == 3 && trns.is_some() && !simple;
+            Some(Image { width: w, height: h, channels: 3, data, warns_palette_transparency: warns })
         }
         _ => None,
     }
@@ -114,9 +125,12 @@ fn webp(bytes: &[u8]) -> Option<Image> {
     }
     let dynimg = image::load_from_memory_with_format(bytes, image::ImageFormat::WebP).ok()?;
     let (w, h) = (dynimg.width() as usize, dynimg.height() as usize);
+    if w * h > MAX_IMAGE_PIXELS {
+        return None;
+    }
     match dynimg {
-        image::DynamicImage::ImageRgb8(b) => Some(Image { width: w, height: h, channels: 3, data: b.into_raw() }),
-        image::DynamicImage::ImageRgba8(b) => Some(Image { width: w, height: h, channels: 4, data: b.into_raw() }),
+        image::DynamicImage::ImageRgb8(b) => Some(Image { width: w, height: h, channels: 3, data: b.into_raw(), warns_palette_transparency: false }),
+        image::DynamicImage::ImageRgba8(b) => Some(Image { width: w, height: h, channels: 4, data: b.into_raw(), warns_palette_transparency: false }),
         _ => None,
     }
 }
@@ -178,6 +192,7 @@ fn jpeg(bytes: &[u8]) -> Option<Image> {
             && h > 0
             && colourspace != TJCS_CMYK
             && colourspace != TJCS_YCCK
+            && (w as usize) * (h as usize) <= MAX_IMAGE_PIXELS
         {
             let grey = colourspace == TJCS_GRAY;
             let channels = if grey { 1 } else { 3 };
@@ -186,7 +201,7 @@ fn jpeg(bytes: &[u8]) -> Option<Image> {
             if (tj.decompress)(handle, bytes.as_ptr(), size, buf.as_mut_ptr(), w, 0, h, pf, 0) == 0 {
                 // Pillow opens a grey JPEG as L, and the script converts L to RGB.
                 let data = if grey { buf.iter().flat_map(|&v| [v, v, v]).collect() } else { buf };
-                out = Some(Image { width: w as usize, height: h as usize, channels: 3, data });
+                out = Some(Image { width: w as usize, height: h as usize, channels: 3, data, warns_palette_transparency: false });
             }
         }
         (tj.destroy)(handle);
@@ -323,7 +338,7 @@ pub fn resize(im: &Image, nw: usize, nh: usize) -> Image {
             }
         }
     }
-    Image { width: w, height: h, channels: im.channels, data }
+    Image { width: w, height: h, channels: im.channels, data, warns_palette_transparency: im.warns_palette_transparency }
 }
 
 // ---------------------------------------------------------------- numpy
