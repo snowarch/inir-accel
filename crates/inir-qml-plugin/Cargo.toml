@@ -1,0 +1,23 @@
+# This code was written by: Hikari.
+[package]
+name = "inir-qml-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+links = "inir-qml-plugin"
+description = "Qt6 / Quickshell / qs-rs native QML plugin (Inir.Native 1.0) powered by cxx-qt"
+
+[lib]
+name = "inir_qml_plugin"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+inir-core = { path = "../inir-core" }
+cxx.workspace = true
+cxx-qt.workspace = true
+cxx-qt-lib.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+cxx-qt-build.workspace = true
