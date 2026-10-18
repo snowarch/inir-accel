@@ -2,6 +2,7 @@
 //! venv shim hands every call to the real Python, so this machine wears the original Material colours.
 
 mod hct;
+mod pixels;
 mod planes;
 mod py;
 mod quantize;
@@ -30,6 +31,26 @@ pub fn probe(args: &[String]) -> i32 {
                 let h = hct::Hct::from_hct(t[0], t[1], t[2]);
                 println!("{} {} {} {}", h.argb, py::float_repr(h.hue), py::float_repr(h.chroma), py::float_repr(h.tone));
             }
+            0
+        }
+        Some("pixels") => {
+            // pixels <image> <size>: what the quantizer gets (size, channels, FNV-1a of the bytes), then the
+            // auto-scheme statistics and decision.
+            let (Some(path), Some(size)) = (args.get(1), args.get(2).and_then(|s| s.parse::<i64>().ok())) else { return 2 };
+            let im = match pixels::open(path) {
+                pixels::Load::Ok(im) => im,
+                pixels::Load::Io(_) => return 3,
+                pixels::Load::Delegate => return DELEGATE,
+            };
+            let (nw, nh) = pixels::optimal_size(im.width, im.height, size);
+            let im = if nw < im.width || nh < im.height { pixels::resize(&im, nw, nh) } else { im };
+            let mut hash: u64 = 0xcbf29ce484222325;
+            for &b in &im.data {
+                hash = (hash ^ b as u64).wrapping_mul(0x100000001b3);
+            }
+            let (c, s, h) = pixels::scheme_stats(&im);
+            println!("{} {} {} {}", im.width, im.height, im.channels, hash);
+            println!("{} {} {} {}", py::float_repr(c), py::float_repr(s), py::float_repr(h), pixels::auto_scheme(&im));
             0
         }
         Some("scheme") => {
