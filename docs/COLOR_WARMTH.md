@@ -1,88 +1,29 @@
-# Calidez de color (warm stone/sand) en `inir-accel`
+# Warm neutrals (opt-in)
 
-Este documento explica la divergencia intencional de `inir-accel` respecto de los
-generadores originales de `~/inir/scripts/colors` (Go `washi` v30 y
-`generate_colors_material.py`) en lo que respecta a la **calidez de los neutros**.
+`inir-accel washi` gives the same bytes as the shell's Go solver (`scripts/colors/washi`, Version 30); `test/parity.py`
+holds the two together. The warm stone/sand look an earlier version baked into every palette is now a separate,
+visible option, off by default.
 
-## Objetivo
+## What it changes
 
-Que toda la shell y las apps tengan el aspecto cálido "arena / piedra" que ya
-tenían Kitty y btop, **sin** perder la fidelidad al wallpaper.
+Only the quiet neutrals, never an accent:
 
-Regla de oro:
-
-| Familia de roles | Quién la decide |
-| :--- | :--- |
-| `primary`, `secondary`, `tertiary`, accent, highlight, `term1..6`, `term9..14` | **El wallpaper** + Language / Variant / Accent / Highlight / Colour del usuario. Nunca se fuerza un tono. |
-| `surface*`, `onSurfaceVariant`, `textSecondary`, `textTertiary`, `outline`, `term7`, `app_subtext` | **Los neutros**: llevan un matiz arena (`SUMI_HUE = 80°`) proporcional a `tune.<scheme>.warmth`. |
-
-## Dónde vive en el código
-
-- [`washi.rs`](../crates/inir-core/src/washi.rs)
-  - `SUMI_HUE = 80.0` (fibra de papel washi / sumi).
-  - `warmth_of(name, tune)`: usa `tune.<scheme>.warmth` si existe; si no, la calidez propia del esquema.
-  - `Solver::apps` y `build_palette`: `warmth_factor = (warmth / 100) * colour`.
-    - `onSurfaceVariant` / `outline`: tono desplazado hacia `SUMI_HUE` hasta `45° * warmth_factor`, croma tope `0.028` / `0.022`.
-    - `textSecondary` / `textTertiary`: desplazamiento `42° * warmth_factor`, croma tope `0.024`.
-    - `secondary` solo recibe un desplazamiento leve (`16° * warmth_factor`); su tono base sigue siendo la semilla del wallpaper.
-  - `seed_of("wallpaperHighlight" | "themeHighlight")` usa `best_seed_lch` sobre las semillas reales (tertiary → secondary → wallpaper → primary). **No** hay override amarillo.
-  - Airisu (`LangKind::Airisu`) y lenguajes con `fixed_ink` quedan excluidos: tienen paleta propia.
-- [`material.rs`](../crates/inir-core/src/material.rs)
-  - `generate_material_colors`: rotaciones de `secondary` (+16° / +24° / +45°) y `tertiary` (+48° / −60°) según variante, igual que el pipeline Python. Se pasa `warmth: Some(32.0)` al solver Washi.
-  - `run_material_pipeline`: `term7` (`#b0a99f` en `scheme-base.json`) se trata aparte, igual que `generate_colors_material.py`:
-    armonía suave con el wallpaper (`harmonize_threshold * 0.35 * harmony`) y croma `0.022..0.042`.
-    El resto de `termN` mantiene el clamp `0.08..0.16`.
-- [`themegens.rs`](../crates/inir-core/src/themegens.rs) y [`region.rs`](../crates/inir-core/src/region.rs): consumen `term7` / `on_surface_variant` como texto atenuado (btop `inactive_fg`, Kitty `color7`, VS Code, Zed, OpenCode, Vesktop, etc.).
-
-## Bug corregido (2026-10-17)
-
-Una primera pasada fijaba `secondary`, `tertiary` y `highlight` en un amarillo
-arena de `82°` con croma `0.076..0.11`, y `term7` heredaba el clamp `0.08` de los
-colores de terminal. Resultado: gráficos de btop, botones secundarios, acentos y
-`color7` de Kitty salían amarillos/dorados (`#CA9E75`, `#F0AE70`, `#CAA271`) con
-**cualquier** wallpaper.
-
-Ahora (wallpaper azul/violeta de referencia):
-
-| Rol | Antes | Ahora |
+| Role | Go solver | Warm neutrals |
 | :--- | :--- | :--- |
-| `primary` | — | `#A0CBFE` |
-| `secondary` | `#CA9E75` | `#BCC4F4` |
-| `tertiary` / highlight | `#F0AE70` | `#D0B9FF` |
-| btop `cpu_start` / `temp_start` | amarillo | `#C7B0F5` |
-| Kitty `color7` | `#CAA271` | `#AFAA9A` |
+| `textSecondary`, `textTertiary` | ink hue, chroma `ink * 1.5`, from 62 % / 45 % of the way to the ink | hue turned toward sand (`SUMI_HUE = 80`) by up to `42 * w`, chroma up to `0.024`, from 64 % / 46 % |
+| apps `onSurfaceVariant`, `outline` | paper hue, chroma `min(0.02, paper * 1.5 + 0.006)` | turned toward sand by up to `45 * w`, chroma up to `0.028` / `0.022`, from 64 % / 42 % |
 
-## Relación con los ajustes del usuario
+`w = warmth / 100 * colour` for the scheme (`tune.<scheme>.warmth`, else the scheme's own warmth, and the Colour
+slider). Below `w = 0.01` nothing moves. AIRISU keeps its own ink (`fixedInk`), so its text never leans.
 
-- **iRiS** (`Config.options.iris.appearance`): `language`, `variant`, `theme.surface`,
-  `accent` / `accentHue`, `highlight` / `highlightHue`, y por esquema
-  `tune.<scheme>.{tone, colour, warmth}`.
-  - `warmth = 0` → neutros solo teñidos por el wallpaper.
-  - `warmth ≈ 20–40` → matiz arena sutil (default).
-  - `warmth ≥ 60` → papel washi marcado.
-- **Material** (`Config.options.appearance.wallpaperTheming`): `colorStrength`,
-  `softenColors`, `colorInvert` y `terminalColorAdjustments`
-  (`saturation`, `brightness`, `harmony`, `backgroundBrightness`) llegan vía
-  `switchwall.sh` → `inir-accel material-colors` y se respetan tal cual.
-  `colorStrength` y `saturation` también escalan la croma de `term7`.
+## Turning it on
 
-## Verificación
+- `~/.config/inir-accel/options.json`: `{"warmNeutrals": true}`
+- or the environment of the shell: `INIR_ACCEL_WARM_NEUTRALS=1` (it wins over the file; `0` turns it off)
+- or one call: `inir-accel washi --warm-neutrals --request '<json>'`
 
-```bash
-cargo test --workspace
-cargo build --release -p inir-accel && ./scripts/activate-accelerators.sh install
-~/inir/scripts/colors/switchwall.sh --noswitch
-REQ=$(jq -r '.request' ~/.local/state/quickshell/user/generated/iris-washi.json)
-~/.local/bin/inir-accel washi --all --request "$REQ" \
-  --write ~/.local/state/quickshell/user/generated/iris-washi.json
-~/inir/scripts/colors/applycolor.sh --force
+The shell re-solves its palette when the request or the version changes, not when this option does: after flipping
+it, change any iRiS colour setting once (or delete `~/.local/state/quickshell/user/generated/iris-washi.json`).
 
-G=~/.local/state/quickshell/user/generated
-jq -r .generated_by $G/theme-meta.json        # → inir-accel (rust)
-jq -c '{primary,secondary,tertiary,on_surface_variant}' $G/colors.json
-grep -E '^color7 ' ~/.config/kitty/current-theme.conf
-grep -E 'inactive_fg|cpu_start' ~/.config/btop/themes/ii-auto.theme
-```
-
-Criterio: `secondary`/`tertiary` deben seguir el tono del wallpaper; `term7`
-debe ser un gris piedra cálido de croma baja (nunca dorado).
+Material colours (`generate_colors_material.py`) have no warm option: until the Material port matches the original,
+every call runs the original Python.

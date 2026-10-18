@@ -14,15 +14,15 @@ Suite de aceleración nativa en Rust para la shell **[iNiR](file:///home/user/in
 
 1. **[`crates/inir-core`](file:///home/user/inir-rust-plugin/crates/inir-core/src/lib.rs)**:
    - [`region.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/region.rs): Reemplazo nativo en Rust de `scripts/images/least_busy_region.py` (sin OpenCV ni NumPy). Implementa escalado de pantalla (`fill`, `fit`, `stretch`, `center`, `tile`), caché binario `.rbin` en `~/.cache/inir/region-sampling/`, grillas `--luma-grid 24` para `services/WallpaperLuma.qml`, imágenes integrales 2D $O(1)$ para búsqueda de regiones (`--busiest`, `--largest-region`) y K-means determinista ($K=3$) para color dominante de widgets.
-   - [`material.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/material.rs): Reemplazo nativo de `scripts/colors/generate_colors_material.py`. Extracción de semilla cromática desde imagen, autodetección de esquema Hasler-Süsstrunk (`--scheme auto`), solver de contraste WCAG 2.1 + APCA-W3 `Lc`, armonización de colores de terminal, anclaje `iris-surface.json` (`--washi-roles`) y motor de plantillas Matugen (`templates.json`).
-   - [`washi.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/washi.rs): Puerto completo en Rust del motor perceptual Washi v30 (`washi`, `iris`, `airisu` y `material:*`).
+   - [`material.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/material.rs): todavía sin port. Hasta que uno iguale a `scripts/colors/generate_colors_material.py` byte por byte, el shim le pasa cada llamada al Python original, así que los colores Material son los de siempre.
+   - [`washi.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/washi.rs): port línea por línea del washi en Go (Version 30: `washi`, `iris`, `airisu` y `material:*`), con la matemática de Go en [`gomath.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/gomath.rs) y su JSON en [`gojson.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/gojson.rs): el mismo pedido da los mismos bytes.
    - [`thumbgen.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/thumbgen.rs): Reemplazo paralelo con Rayon de `scripts/thumbnails/thumbgen.py` con hash MD5 RFC 1321 idéntico a `ThumbnailImage.qml` (`~/.cache/thumbnails/<size>/<md5>.png`) y streaming `PROGRESS i/total FILE ...` para `services/Wallpapers.qml`.
    - [`sensors.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/sensors.rs): Descubrimiento `hwmon`/GPU (`detect_sensors.py`) y lectura directa de `/proc/meminfo`, `/proc/stat`, `/proc/cpuinfo` y `statvfs`.
    - [`apps.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/apps.rs): Escaneo ultrarrápido de `.desktop`, búsqueda difusa + Levenshtein (`AppSearch.qml`), resolución de íconos de ventana, `scan-plugins.py`, `scan-widgets.sh` e `icon-theme-for-mode.sh`.
    - [`prewarm.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/prewarm.rs): Escáner y constructor paralelo de VFS QML (1514 archivos QML) compatible con `qs-rs`.
 2. **[`crates/inir-accel`](file:///home/user/inir-rust-plugin/crates/inir-accel/src/main.rs)**:
    - Binario multi-call (`inir-accel`) que funciona tanto por subcomandos directos como por intercepción transparente de `~/.local/state/quickshell/.venv/bin/python3` y `~/.local/state/quickshell/user/generated/bin/inir-washi`.
-   - Cuando la shell en ejecución invoca `~/.local/state/quickshell/.venv/bin/python3` sobre `generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py` o `scan-plugins.py`, `inir-accel` los ejecuta nativamente en Rust; para cualquier otro script de Python (`ytmusic`, `innertube`, `-c`, `-m`), delega instantáneamente vía `execv` a `python3.real`.
+   - Cuando la shell en ejecución invoca `~/.local/state/quickshell/.venv/bin/python3` sobre `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py` o `scan-plugins.py`, `inir-accel` los ejecuta nativamente en Rust; `generate_colors_material.py` y cualquier otro script (`ytmusic`, `innertube`, `-c`, `-m`) van vía `execv` a `python3.real`.
 3. **[`crates/inir-qml-plugin`](file:///home/user/inir-rust-plugin/crates/inir-qml-plugin/src/lib.rs)**:
    - Plugin QML nativo Qt6 (`import Inir.Native 1.0`, singleton `InirNative`) construido con `cxx-qt 0.10.0` que expone propiedades reactivas de telemetría y métodos `#[qinvokable]` sin crear subprocesos (`refreshResources`, `solveWashi`, `generateMaterialColors`, `computeLumaGridJson`, `makeThumbnail`, `fuzzySearchAppsJson`, `guessIcon`, `scanWidgetsJson`, `scanPluginsJson`, `prewarmVfsJson`).
 
@@ -36,7 +36,7 @@ Pruebas A/B ejecutadas sobre el wallpaper activo de alta resolución (`ChatGPT I
 | :--- | ---: | ---: | ---: |
 | `WallpaperLuma` (`least_busy_region.py --luma-grid 24`, frío) | `501 ms` | **`126 ms`** | **4.0× más rápido** |
 | `WallpaperLuma` / Widgets (`least_busy_region.py`, caché `.rbin`) | `501 ms` | **`14 ms`** | **35.8× más rápido** |
-| `generate_colors_material.py` (tiempo real / tiempo de CPU) | `295 ms` (`1270 ms` CPU) | **`48 ms`** (`46 ms` CPU) | **6.1× más rápido (27.6× menos CPU)** |
+| `generate_colors_material.py` | Python original | Python original (delegado) | Sin port todavía |
 | `thumbgen-venv.sh` (350 wallpapers en `/home/user/Imágenes/Wallpapers`) | ~3.5s – 12s | **`459 ms`** | **~8×–25× más rápido** |
 | `inir-washi` (3 esquemas + 7 estilos) | ~18–25 ms | **`12.7 ms`** (binario) / **`0.42 ms`** (Material in-proc) | Instantáneo |
 | Telemetría hardware (`detect_sensors` + `/proc` + `statvfs`) | ~45 ms | **`0.78 ms`** | **57× más rápido** |
@@ -65,7 +65,21 @@ El script [`scripts/activate-accelerators.sh`](file:///home/user/inir-rust-plugi
 
 ## 5. Color: neutros cálidos, acentos del wallpaper
 
-`inir-accel` le da a los neutros (superficies, subtextos, bordes, `term7`) un matiz arena/piedra cálido controlado por el slider **Warmth** (`tune.<scheme>.warmth`), mientras `primary`, `secondary`, `tertiary`, accent y highlight siguen siempre al wallpaper y a los ajustes de Material/iRiS. Detalle, roles, bug corregido y verificación en [`docs/COLOR_WARMTH.md`](docs/COLOR_WARMTH.md).
+Por defecto los colores son exactamente los del original. Aparte, como opción visible, `inir-accel` puede darle a los neutros silenciosos (texto secundario y terciario, `onSurfaceVariant` y `outline` de las apps) un matiz arena según el slider **Warmth**: `{"warmNeutrals": true}` en `~/.config/inir-accel/options.json`, o `INIR_ACCEL_WARM_NEUTRALS=1`. Detalle en [`docs/COLOR_WARMTH.md`](docs/COLOR_WARMTH.md).
 
 ---
+
+## Paridad
+
+`test/parity.py` corre cada caso con el original (washi compilado desde el Go de la shell, Material y región con el
+Python real del venv) y con `inir-accel` tal como lo alcanza la shell, cada uno en su propio HOME y XDG, y compara
+stdout, stderr, código de salida y cada archivo escrito, byte por byte. Un port que se rinde y vuelve a Python cuenta
+como "delegado", no como igual.
+
+```bash
+python3 test/parity.py            # washi, material y region
+python3 test/parity.py washi      # uno solo; --quick achica el corpus
+PARITY_SEED=2 PARITY_WASHI_N=3000 python3 test/parity.py washi
+```
+
 This code was written by: Hikari.
