@@ -81,6 +81,7 @@ fn main() {
     let code = match sub {
         "washi" => cmd_washi(rest),
         "material-colors" | "colors" => cmd_material_colors(rest),
+        "__material-probe" => material::probe(rest),
         "region" | "least-busy-region" => cmd_region(rest),
         "thumbgen" | "thumbnails" => cmd_thumbgen(rest),
         "terminals" | "generate-terminal-configs" => cmd_terminals(rest),
