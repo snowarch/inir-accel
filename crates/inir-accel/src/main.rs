@@ -82,6 +82,7 @@ fn main() {
         "washi" => cmd_washi(rest),
         "material-colors" | "colors" => cmd_material_colors(rest),
         "__material-probe" => material::probe(rest),
+        "__region-probe" => region::probe(rest),
         "region" | "least-busy-region" => cmd_region(rest),
         "thumbgen" | "thumbnails" => cmd_thumbgen(rest),
         "terminals" | "generate-terminal-configs" => cmd_terminals(rest),
@@ -189,8 +190,9 @@ fn handle_python_shim(args: &[String]) -> ! {
             exec_real_python(args);
         }
         "least_busy_region.py" => {
-            if region::run_cli(script_args).is_ok() {
-                std::process::exit(0);
+            let code = region::run_script(&args[idx], script_args);
+            if code != region::DELEGATE {
+                std::process::exit(code);
             }
             exec_real_python(args);
         }
@@ -384,11 +386,11 @@ fn cmd_ipc_probe() -> i32 {
 
 fn cmd_region(args: &[String]) -> i32 {
     match region::run_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("inir-accel region: {e}");
-            1
+        region::DELEGATE => {
+            eprintln!("inir-accel region: not covered by the port; run scripts/images/least_busy_region.py");
+            region::DELEGATE
         }
+        code => code,
     }
 }
 

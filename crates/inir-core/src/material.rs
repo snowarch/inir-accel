@@ -3,9 +3,9 @@
 //! from; anything else, and the few inputs the port leaves alone, run the original.
 
 mod hct;
-mod pixels;
+pub(crate) mod pixels;
 mod planes;
-mod py;
+pub(crate) mod py;
 mod quantize;
 mod scheme;
 mod script;
@@ -96,7 +96,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// The venv the shim stands in, as Python would find its prefix: the directory above the `bin/` it was called from
 /// when that is a venv (how switchwall.sh calls it), else `INIR_VENV` (the session may hand it with `$HOME`
 /// unexpanded, as the script's own shebang `eval`s it), else the shell's default.
-fn venv_dir() -> std::path::PathBuf {
+pub(crate) fn venv_dir() -> std::path::PathBuf {
     if let Some(dir) = std::env::args_os().next().map(std::path::PathBuf::from).and_then(|p| p.parent()?.parent().map(|p| p.to_path_buf())) {
         if dir.join("pyvenv.cfg").is_file() {
             return dir;

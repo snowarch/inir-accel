@@ -172,6 +172,36 @@ fn turbojpeg() -> Option<&'static TurboJpeg> {
     .as_ref()
 }
 
+/// libjpeg-turbo's pixels in one `TJPF_*` format (tjDecompress2, no flags): width, height and the rows, or nothing
+/// for CMYK and YCCK, a failed decode or a missing library. A warning (corrupt data) counts as failed.
+pub(crate) fn turbo_decode(bytes: &[u8], pixel_format: c_int, channels: usize) -> Option<(usize, usize, Vec<u8>)> {
+    const TJCS_CMYK: c_int = 3;
+    const TJCS_YCCK: c_int = 4;
+    let tj = turbojpeg()?;
+    unsafe {
+        let handle = (tj.init)();
+        if handle.is_null() {
+            return None;
+        }
+        let (mut w, mut h, mut subsamp, mut colourspace) = (0, 0, 0, 0);
+        let size = bytes.len() as c_ulong;
+        let mut out = None;
+        if (tj.header)(handle, bytes.as_ptr(), size, &mut w, &mut h, &mut subsamp, &mut colourspace) == 0
+            && w > 0
+            && h > 0
+            && colourspace != TJCS_CMYK
+            && colourspace != TJCS_YCCK
+        {
+            let mut buf = vec![0u8; w as usize * h as usize * channels];
+            if (tj.decompress)(handle, bytes.as_ptr(), size, buf.as_mut_ptr(), w, 0, h, pixel_format, 0) == 0 {
+                out = Some((w as usize, h as usize, buf));
+            }
+        }
+        (tj.destroy)(handle);
+        out
+    }
+}
+
 fn jpeg(bytes: &[u8]) -> Option<Image> {
     const TJPF_RGB: c_int = 0;
     const TJPF_GRAY: c_int = 6;
@@ -345,7 +375,7 @@ pub fn resize(im: &Image, nw: usize, nh: usize) -> Image {
 
 /// numpy's `pairwise_sum` for float64 (loops_utils.h.src): blocks of 8 accumulators up to 128 elements, halves
 /// rounded down to a multiple of 8 above that.
-fn pairwise_sum(a: &[f64]) -> f64 {
+pub(crate) fn pairwise_sum(a: &[f64]) -> f64 {
     let n = a.len();
     if n < 8 {
         let mut res = 0.0;
@@ -385,7 +415,7 @@ fn np_mean(a: &[f64]) -> f64 {
     np_sum(a) / a.len() as f64
 }
 
-fn np_std(a: &[f64]) -> f64 {
+pub(crate) fn np_std(a: &[f64]) -> f64 {
     let mean = np_sum(a) / a.len() as f64;
     let sq: Vec<f64> = a
         .iter()

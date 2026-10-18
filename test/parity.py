@@ -400,6 +400,16 @@ def region_suite(work: Path, quick: bool, jobs: int):
         cases.append(("widget", ["--screen-width", str(sw), "--screen-height", str(sh), "--width", str(rng.choice([260, 300, 420])),
                                  "--height", str(rng.choice([180, 200, 260])), "--horizontal-padding", "48", "--vertical-padding", "48", str(img)]
                       + (["--busiest"] if i % 2 else [])))
+        # The script's other modes, which the shell does not call today but the port answers too.
+        extra = [
+            ("color", ["--color-only", "--position-x", str(rng.randrange(-50, sw)), "--position-y", str(rng.randrange(-50, sh)),
+                       "--width", str(rng.choice([1, 2, 40, 300])), "--height", str(rng.choice([1, 3, 200]))]),
+            ("largest", ["--largest-region", "-t", str(rng.choice([50, 400.5, 1000, 5000])), "--aspect-ratio", str(rng.choice([1.78, 0.5, 1.0]))]),
+            ("verbose", ["--verbose", "--stride", str(rng.choice([0, 1, 7, 33])), "--width", str(rng.choice([300, 5000])), "-hp", "10", "-vp", "900"]),
+        ][i % 3]
+        cases.append((extra[0], extra[1] + ["--screen-width", str(sw), "--screen-height", str(sh), "--screen-mode", mode, str(img)]))
+    cases.append(("missing", ["--screen-width", "1920", "--screen-height", "1080", str(work / "no-such-wallpaper.png")]))
+    cases.append(("missing-luma", ["--luma-grid", "24", str(work / "no-such-wallpaper.png")]))
     cases = list(enumerate(cases))
 
     def one(case):
@@ -409,13 +419,14 @@ def region_suite(work: Path, quick: bool, jobs: int):
             base = work / "region" / str(i) / side
             base.mkdir(parents=True, exist_ok=True)
             exe = [str(REAL_PY), str(script)] if side == "orig" else [str(shim / "python3"), str(script)]
-            env = {"INIR_REAL_PYTHON": str(stub)} if side == "port" else None
+            env = {"INIR_REAL_PYTHON": str(stub), "INIR_VENV": str(VENV)} if side == "port" else None
             first = run(exe + argv, base, extra_env=env)
             again = run(exe + argv, base, extra_env=env)  # the second run reads its own cache
-            first.files, again.files = {}, {}
+            again.files = {}
             res.append((first, again))
         shutil.rmtree(work / "region" / str(i), ignore_errors=True)  # the caches of a 4K wallpaper add up fast
-        problems = compare(res[0][0], res[1][0], what=("rc", "stdout"))
+        # The .npy caches are shared with the original, so their bytes count; a traceback is Python's wording.
+        problems = compare(res[0][0], res[1][0], what=("rc", "stdout", "files"))
         problems += [p.replace("  stdout", "  stdout (cached)", 1) for p in compare(res[0][1], res[1][1], what=("rc", "stdout"))]
         return f"{i}:{kind}", " ".join(Path(a).name if a.startswith("/") else a for a in argv), problems
 
