@@ -200,6 +200,7 @@ def washi_suite(work: Path, quick: bool, jobs: int):
             res.append(run([str(exe)] + argv_tail, base))
         # Go and Rust word their errors differently; for a refused request only the code and stdout count.
         what = ("rc", "stdout", "files") if req in ("__noargs__", "{not json") else ("rc", "stdout", "stderr", "files")
+        shutil.rmtree(work / "washi" / str(i), ignore_errors=True)
         return i, req, compare(*res, what=what)
 
     return list(pmap(one, cases, jobs))
@@ -371,6 +372,7 @@ def material_suite(work: Path, quick: bool, jobs: int):
             res.append(run(exe + args, base, setup=setup, extra_env={"INIR_REAL_PYTHON": str(stub)} if side == "port" else None))
         # A traceback or an argparse message is Python's wording; there the code, stdout and the files count.
         what = ("rc", "stdout", "files") if kind in ("missing-file", "bad-flag", "bad-mode") else ("rc", "stdout", "stderr", "files")
+        shutil.rmtree(work / "material" / str(i), ignore_errors=True)
         return f"{i}:{kind}", " ".join(argv[:6]), compare(*res, what=what)
 
     return list(pmap(one, cases, jobs))
@@ -412,6 +414,7 @@ def region_suite(work: Path, quick: bool, jobs: int):
             again = run(exe + argv, base, extra_env=env)  # the second run reads its own cache
             first.files, again.files = {}, {}
             res.append((first, again))
+        shutil.rmtree(work / "region" / str(i), ignore_errors=True)  # the caches of a 4K wallpaper add up fast
         problems = compare(res[0][0], res[1][0], what=("rc", "stdout"))
         problems += [p.replace("  stdout", "  stdout (cached)", 1) for p in compare(res[0][1], res[1][1], what=("rc", "stdout"))]
         return f"{i}:{kind}", " ".join(Path(a).name if a.startswith("/") else a for a in argv), problems
