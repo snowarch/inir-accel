@@ -5,6 +5,7 @@ mod hct;
 mod planes;
 mod py;
 mod quantize;
+mod scheme;
 
 /// The exit code that tells the shim to run the original script instead.
 pub const DELEGATE: i32 = 125;
@@ -31,9 +32,29 @@ pub fn probe(args: &[String]) -> i32 {
             }
             0
         }
+        Some("scheme") => {
+            // scheme <scheme name> <0|1 dark> <argb>...: per seed, the 59 colours in script order, then the six
+            // palettes at the tones the script reads back.
+            let (Some(name), Some(dark)) = (args.get(1), args.get(2)) else { return 2 };
+            let variant = scheme::Variant::from_scheme_name(name);
+            for seed in args[3..].iter().filter_map(|a| a.parse::<u32>().ok()) {
+                let s = scheme::Scheme::new(hct::Hct::from_int(seed), variant, dark == "1", 0.0);
+                let colours: Vec<String> = scheme::ROLES.iter().map(|&r| s.argb(r).to_string()).collect();
+                let mut tones = Vec::new();
+                for p in [&s.primary, &s.secondary, &s.tertiary, &s.neutral, &s.neutral_variant, &s.error] {
+                    for t in PROBE_TONES {
+                        tones.push(p.get_hct(t).argb.to_string());
+                    }
+                }
+                println!("{} | {}", colours.join(" "), tones.join(" "));
+            }
+            0
+        }
         _ => 2,
     }
 }
+
+const PROBE_TONES: [f64; 16] = [0.0, 4.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 98.0, 99.0, 100.0];
 
 #[derive(Clone, Debug)]
 pub struct MaterialGenConfig {
