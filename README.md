@@ -14,7 +14,7 @@ Suite de aceleración nativa en Rust para la shell **[iNiR](file:///home/user/in
 
 1. **[`crates/inir-core`](file:///home/user/inir-rust-plugin/crates/inir-core/src/lib.rs)**:
    - [`region.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/region.rs): Reemplazo nativo en Rust de `scripts/images/least_busy_region.py` (sin OpenCV ni NumPy). Implementa escalado de pantalla (`fill`, `fit`, `stretch`, `center`, `tile`), caché binario `.rbin` en `~/.cache/inir/region-sampling/`, grillas `--luma-grid 24` para `services/WallpaperLuma.qml`, imágenes integrales 2D $O(1)$ para búsqueda de regiones (`--busiest`, `--largest-region`) y K-means determinista ($K=3$) para color dominante de widgets.
-   - [`material.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/material.rs): todavía sin port. Hasta que uno iguale a `scripts/colors/generate_colors_material.py` byte por byte, el shim le pasa cada llamada al Python original, así que los colores Material son los de siempre.
+   - [`material.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/material.rs): port byte por byte de `scripts/colors/generate_colors_material.py` (materialyoucolor 3.0.4, Pillow 12.3.0 y numpy 2.5.4 transcriptos: HCT, cuantizador, los 9 esquemas, lectura y reescalado de imágenes, terminal, paletas y plantillas). Responde solo si el script y esas versiones son exactamente los transcriptos; si no, y en lo poco que no cubre (GIF, JPEG CMYK, gris de 1 o 16 bits, `--debug`, `--help`), corre el original.
    - [`washi.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/washi.rs): port línea por línea del washi en Go (Version 30: `washi`, `iris`, `airisu` y `material:*`), con la matemática de Go en [`gomath.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/gomath.rs) y su JSON en [`gojson.rs`](file:///home/user/inir-eco/inir-rust-plugin/crates/inir-core/src/gojson.rs): el mismo pedido da los mismos bytes.
    - [`thumbgen.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/thumbgen.rs): Reemplazo paralelo con Rayon de `scripts/thumbnails/thumbgen.py` con hash MD5 RFC 1321 idéntico a `ThumbnailImage.qml` (`~/.cache/thumbnails/<size>/<md5>.png`) y streaming `PROGRESS i/total FILE ...` para `services/Wallpapers.qml`.
    - [`sensors.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/sensors.rs): Descubrimiento `hwmon`/GPU (`detect_sensors.py`) y lectura directa de `/proc/meminfo`, `/proc/stat`, `/proc/cpuinfo` y `statvfs`.
@@ -36,7 +36,7 @@ Pruebas A/B ejecutadas sobre el wallpaper activo de alta resolución (`ChatGPT I
 | :--- | ---: | ---: | ---: |
 | `WallpaperLuma` (`least_busy_region.py --luma-grid 24`, frío) | `501 ms` | **`126 ms`** | **4.0× más rápido** |
 | `WallpaperLuma` / Widgets (`least_busy_region.py`, caché `.rbin`) | `501 ms` | **`14 ms`** | **35.8× más rápido** |
-| `generate_colors_material.py` | Python original | Python original (delegado) | Sin port todavía |
+| `generate_colors_material.py` (fondo real, terminal y plantillas, mediana de 8) | `872 ms` | **`198 ms`** | **4.4× más rápido** |
 | `thumbgen-venv.sh` (350 wallpapers en `/home/user/Imágenes/Wallpapers`) | ~3.5s – 12s | **`459 ms`** | **~8×–25× más rápido** |
 | `inir-washi` (3 esquemas + 7 estilos) | ~18–25 ms | **`12.7 ms`** (binario) / **`0.42 ms`** (Material in-proc) | Instantáneo |
 | Telemetría hardware (`detect_sensors` + `/proc` + `statvfs`) | ~45 ms | **`0.78 ms`** | **57× más rápido** |

@@ -528,7 +528,7 @@ fn cmd_bench() -> i32 {
         washi_us as f64 / 1000.0
     );
 
-    println!("2. Material You                                 : delegated to generate_colors_material.py (not ported yet)");
+    println!("2. Material You                                 : generate_colors_material.py port (test/parity.py material)");
 
     let t2 = Instant::now();
     let s = sensors::detect_sensors("/sys");

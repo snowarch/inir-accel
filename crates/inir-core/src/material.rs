@@ -93,18 +93,21 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     h
 }
 
-/// The venv the shim stands in: `INIR_VENV`, else the directory above the `bin/` it was called from, else the
-/// shell's default.
+/// The venv the shim stands in, as Python would find its prefix: the directory above the `bin/` it was called from
+/// when that is a venv (how switchwall.sh calls it), else `INIR_VENV` (the session may hand it with `$HOME`
+/// unexpanded, as the script's own shebang `eval`s it), else the shell's default.
 fn venv_dir() -> std::path::PathBuf {
-    if let Some(v) = std::env::var_os("INIR_VENV").filter(|v| !v.is_empty()) {
-        return v.into();
-    }
     if let Some(dir) = std::env::args_os().next().map(std::path::PathBuf::from).and_then(|p| p.parent()?.parent().map(|p| p.to_path_buf())) {
         if dir.join("pyvenv.cfg").is_file() {
             return dir;
         }
     }
     let home = std::env::var("HOME").unwrap_or_default();
+    if let Ok(v) = std::env::var("INIR_VENV") {
+        if !v.is_empty() {
+            return v.replace("${HOME}", &home).replace("$HOME", &home).into();
+        }
+    }
     std::path::PathBuf::from(format!("{home}/.local/state/quickshell/.venv"))
 }
 
