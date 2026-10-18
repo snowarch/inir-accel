@@ -4,6 +4,8 @@
 
 pub mod apps;
 pub mod daemons;
+pub mod gojson;
+pub mod gomath;
 pub mod helpers;
 pub mod material;
 pub mod prewarm;

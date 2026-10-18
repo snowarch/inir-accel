@@ -119,6 +119,17 @@ fn find_real_python() -> PathBuf {
             return pb;
         }
     }
+    // The interpreter the shim replaced sits beside it (.venv/bin/python3.real): exec'd from there, Python still
+    // finds the venv. Only then the usual places.
+    if let Some(first) = env::args_os().next() {
+        let shim = PathBuf::from(first);
+        if let Some(dir) = shim.parent().filter(|d| !d.as_os_str().is_empty()) {
+            let sibling = dir.join("python3.real");
+            if sibling.exists() {
+                return sibling;
+            }
+        }
+    }
     let home = env::var("HOME").unwrap_or_default();
     let candidates = [
         format!("{home}/.local/state/quickshell/.venv/bin/python3.real"),
@@ -168,9 +179,11 @@ fn handle_python_shim(args: &[String]) -> ! {
 
     match script_name.as_str() {
         "generate_colors_material.py" => {
+            // The port answers everything the original does, errors included; only what it does not cover
+            // (a GIF's second frame, --debug) goes to the real Python.
             let code = cmd_material_colors(script_args);
-            if code == 0 {
-                std::process::exit(0);
+            if code != material::DELEGATE {
+                std::process::exit(code);
             }
             exec_real_python(args);
         }
@@ -389,225 +402,20 @@ fn cmd_thumbgen(args: &[String]) -> i32 {
 }
 
 fn cmd_washi(args: &[String]) -> i32 {
-    let mut request_raw = String::new();
-    let mut out_file = String::new();
-    let mut is_default = false;
-
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--request" | "-request" => {
-                i += 1;
-                if let Some(v) = args.get(i) {
-                    request_raw = v.clone();
-                }
-            }
-            "--out" | "-out" => {
-                i += 1;
-                if let Some(v) = args.get(i) {
-                    out_file = v.clone();
-                }
-            }
-            "--default" | "-default" => {
-                is_default = true;
-            }
-            arg if arg.starts_with("--request=") => {
-                request_raw = arg.trim_start_matches("--request=").to_string();
-            }
-            arg if arg.starts_with("--out=") => {
-                out_file = arg.trim_start_matches("--out=").to_string();
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    let mut req = washi::default_request();
-    if !is_default {
-        if request_raw.is_empty() {
-            eprintln!("inir-washi: --request or --default");
-            return 2;
-        }
-        match serde_json::from_str::<washi::Request>(&request_raw) {
-            Ok(parsed) => {
-                req = parsed;
-            }
-            Err(e) => {
-                eprintln!("inir-washi: {e}");
-                return 2;
-            }
-        }
-    } else {
-        request_raw = serde_json::to_string(&req).unwrap_or_default();
-    }
-
-    let solved = washi::solve_all(&req, &request_raw);
-    let Ok(data) = serde_json::to_string(&solved) else {
-        return 1;
-    };
-
-    if !out_file.is_empty() {
-        let out_path = Path::new(&out_file);
-        if let Some(parent) = out_path.parent() {
-            let fname = out_path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-            let tmp = parent.join(format!(".{fname}.tmp"));
-            if fs::write(&tmp, &data).is_ok() {
-                let _ = fs::rename(&tmp, out_path);
-            }
+    let mut opts = washi::Options::from_env();
+    let mut rest = Vec::with_capacity(args.len());
+    for a in args {
+        if a == "--warm-neutrals" {
+            opts.warm_neutrals = true;
+        } else {
+            rest.push(a.clone());
         }
     }
-
-    print!("{data}");
-    0
+    washi::run_cli(&rest, opts)
 }
 
 fn cmd_material_colors(args: &[String]) -> i32 {
-    let mut cfg = material::MaterialGenConfig::default();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--path" => {
-                i += 1;
-                cfg.path = args.get(i).cloned();
-            }
-            "--size" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.size = v;
-                }
-            }
-            "--color" => {
-                i += 1;
-                cfg.color = args.get(i).cloned();
-            }
-            "--mode" => {
-                i += 1;
-                if let Some(v) = args.get(i) {
-                    cfg.mode = v.clone();
-                }
-            }
-            "--scheme" => {
-                i += 1;
-                if let Some(v) = args.get(i) {
-                    cfg.scheme = v.clone();
-                }
-            }
-            "--smart" => cfg.smart = true,
-            "--transparency" => {
-                i += 1;
-                if let Some(v) = args.get(i) {
-                    cfg.transparency = v.clone();
-                }
-            }
-            "--termscheme" => {
-                i += 1;
-                cfg.termscheme = args.get(i).cloned();
-            }
-            "--harmony" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.harmony = v;
-                }
-            }
-            "--harmonize_threshold" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.harmonize_threshold = v;
-                }
-            }
-            "--term_fg_boost" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.term_fg_boost = v;
-                }
-            }
-            "--term_saturation" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.term_saturation = v;
-                }
-            }
-            "--term_brightness" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.term_brightness = v;
-                }
-            }
-            "--term_bg_brightness" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.term_bg_brightness = v;
-                }
-            }
-            "--blend_bg_fg" => cfg.blend_bg_fg = true,
-            "--cache" => {
-                i += 1;
-                cfg.cache = args.get(i).cloned();
-            }
-            "--soften" => cfg.soften = true,
-            "--debug" => cfg.debug = true,
-            "--json-output" => {
-                i += 1;
-                cfg.json_output = args.get(i).cloned();
-            }
-            "--palette-output" => {
-                i += 1;
-                cfg.palette_output = args.get(i).cloned();
-            }
-            "--app-palette-output" => {
-                i += 1;
-                cfg.app_palette_output = args.get(i).cloned();
-            }
-            "--terminal-output" => {
-                i += 1;
-                cfg.terminal_output = args.get(i).cloned();
-            }
-            "--meta-output" => {
-                i += 1;
-                cfg.meta_output = args.get(i).cloned();
-            }
-            "--scss-output" => {
-                i += 1;
-                cfg.scss_output = args.get(i).cloned();
-            }
-            "--surface-seed" => {
-                i += 1;
-                cfg.surface_seed = args.get(i).cloned();
-            }
-            "--accent-seed" => {
-                i += 1;
-                cfg.accent_seed = args.get(i).cloned();
-            }
-            "--washi-roles" => {
-                i += 1;
-                cfg.washi_roles = args.get(i).cloned();
-            }
-            "--render-templates" => {
-                i += 1;
-                cfg.render_templates = args.get(i).cloned();
-            }
-            "--color-strength" => {
-                i += 1;
-                if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
-                    cfg.color_strength = v;
-                }
-            }
-            "--invert-hue" => cfg.invert_hue = true,
-            _ => {}
-        }
-        i += 1;
-    }
-
-    match material::run_material_pipeline(cfg) {
-        Ok(scss) => {
-            print!("{scss}");
-            0
-        }
-        Err(e) => {
-            eprintln!("inir-accel material-colors: {e}");
-            1
-        }
-    }
+    material::run_cli(args)
 }
 
 fn cmd_detect_sensors(args: &[String]) -> i32 {
@@ -711,7 +519,7 @@ fn cmd_bench() -> i32 {
 
     let t0 = Instant::now();
     let req = washi::default_request();
-    let _ = washi::solve_all(&req, "{}");
+    let _ = washi::solve_all(&req, "{}").to_json();
     let washi_us = t0.elapsed().as_micros();
     println!(
         "1. Washi full 3-scheme + 7-style palette solve  : {:>6} µs ({:.2} ms)",
@@ -719,16 +527,7 @@ fn cmd_bench() -> i32 {
         washi_us as f64 / 1000.0
     );
 
-    let t1 = Instant::now();
-    let mut mcfg = material::MaterialGenConfig::default();
-    mcfg.color = Some("#7AA2F7".to_string());
-    let _ = material::run_material_pipeline(mcfg);
-    let mat_us = t1.elapsed().as_micros();
-    println!(
-        "2. Material You + APCA terminal + app palette   : {:>6} µs ({:.2} ms)",
-        mat_us,
-        mat_us as f64 / 1000.0
-    );
+    println!("2. Material You                                 : delegated to generate_colors_material.py (not ported yet)");
 
     let t2 = Instant::now();
     let s = sensors::detect_sensors("/sys");

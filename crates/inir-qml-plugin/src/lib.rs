@@ -223,11 +223,9 @@ impl qobject::InirNative {
         let req = if s.trim().is_empty() {
             washi::default_request()
         } else {
-            serde_json::from_str::<washi::Request>(&s).unwrap_or_else(|_| washi::default_request())
+            washi::decode_request(&s).unwrap_or_else(|_| washi::default_request())
         };
-        let out = washi::solve_all(&req, &s);
-        let json = serde_json::to_string(&out).unwrap_or_else(|_| "{}".to_string());
-        QString::from(json.as_str())
+        QString::from(washi::solve_all_with(&req, &s, washi::Options::from_env()).to_json().as_str())
     }
 
     fn generate_material_colors(
