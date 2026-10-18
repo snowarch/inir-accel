@@ -274,6 +274,11 @@ def wallpapers(quick: bool) -> list:
     return files
 
 
+ROLES_DARK = {"roles": {"background": "#141218", "surface": "#141218", "onSurface": "#e6e0e9", "primary": "#d0bcff",
+                        "onPrimary": "#381e72", "surfaceContainer": "#211f26", "nothex": "red"}}
+ROLES_LIGHT = {"roles": {"background": "#fdf8fd", "primary": "#6750a4", "onPrimary": "#ffffff"}}
+
+
 def material_cases(work: Path, quick: bool) -> list:
     rng = random.Random(4)
     term = str(SHELL / "scripts/colors/terminal/scheme-base.json")
@@ -288,11 +293,8 @@ def material_cases(work: Path, quick: bool) -> list:
         scheme = ["auto", rng.choice(schemes)][i % 2]
         cases.append(("img", ["--path", str(img), "--mode", mode, "--scheme", scheme, "--termscheme", term, "--blend_bg_fg",
                               "--cache", "out/color.txt"] + outs))
-    roles = work / "iris-surface.json"
-    roles.write_text(json.dumps({"roles": {"background": "#141218", "surface": "#141218", "onSurface": "#e6e0e9", "primary": "#d0bcff",
-                                           "onPrimary": "#381e72", "surfaceContainer": "#211f26", "nothex": "red"}}))
-    roles_light = work / "iris-surface-light.json"
-    roles_light.write_text(json.dumps({"roles": {"background": "#fdf8fd", "primary": "#6750a4", "onPrimary": "#ffffff"}}))
+    # The roles go inside each run (see material_suite): the original writes iris-seeds.json beside them.
+    roles, roles_light = "@ROLES_DARK@", "@ROLES_LIGHT@"
     seeds = ["#%06x" % rng.randrange(1 << 24) for _ in range(12 if quick else 60)] + ["#808080", "#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff"]
     for k, seed in enumerate(seeds):
         for scheme in (schemes if not quick or k < 2 else schemes[k % 9:k % 9 + 1]):
@@ -314,7 +316,7 @@ def material_cases(work: Path, quick: bool) -> list:
                 if rng.random() < 0.15:
                     argv += ["--accent-seed", "#%06x" % rng.randrange(1 << 24)]
                 if rng.random() < 0.12:
-                    argv += ["--washi-roles", str(roles if mode == "dark" else roles_light)]
+                    argv += ["--washi-roles", roles if mode == "dark" else roles_light]
                 cases.append(("color", argv + outs))
     # The calls the shell makes besides switchwall: SCSS on stdout only, doctor, install, the terminal test.
     cases += [
@@ -355,10 +357,16 @@ def material_suite(work: Path, quick: bool, jobs: int):
             base.mkdir(parents=True, exist_ok=True)
             (base / "out").mkdir(exist_ok=True)
             args = list(argv)
-            setup = None
+            setups = []
             if "@MATUGEN@" in args:
                 args[args.index("@MATUGEN@")] = str(base / "home/.config/matugen")
-                setup = lambda b: shutil.copytree(matugen, b / "home/.config/matugen", dirs_exist_ok=True)
+                setups.append(lambda b: shutil.copytree(matugen, b / "home/.config/matugen", dirs_exist_ok=True))
+            for tag, roles in (("@ROLES_DARK@", ROLES_DARK), ("@ROLES_LIGHT@", ROLES_LIGHT)):
+                if tag in args:
+                    args[args.index(tag)] = str(base / "out/roles/iris-surface.json")
+                    setups.append(lambda b, r=roles: ((b / "out/roles").mkdir(parents=True, exist_ok=True),
+                                                      (b / "out/roles/iris-surface.json").write_text(json.dumps(r))))
+            setup = (lambda b: [f(b) for f in setups]) if setups else None
             exe = [str(REAL_PY), "-E", str(script)] if side == "orig" else [str(shim / "python3"), "-E", str(script)]
             res.append(run(exe + args, base, setup=setup, extra_env={"INIR_REAL_PYTHON": str(stub)} if side == "port" else None))
         # A traceback or an argparse message is Python's wording; there the code, stdout and the files count.
