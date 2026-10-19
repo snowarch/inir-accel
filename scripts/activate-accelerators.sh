@@ -32,6 +32,20 @@ EOF
 
 cmd="${1:-status}"
 
+# Only what test/parity.py proved byte for byte the same as the original takes over a live hook. The other Go
+# helpers keep (or get back) their original binary; the shell rebuilds a missing one on demand.
+PARITY_GO=(inir-washi)
+ALL_GO=(inir-washi inir-vscode-themegen inir-zed-themegen inir-opencode-themegen inir-system24-themegen)
+
+restore_go() {
+    if [[ -L "${STATE_BIN_DIR}/$1" ]]; then
+        rm -f "${STATE_BIN_DIR}/$1"
+    fi
+    if [[ -f "${STATE_BIN_DIR}/$1.go.bak" ]]; then
+        mv -f "${STATE_BIN_DIR}/$1.go.bak" "${STATE_BIN_DIR}/$1"
+    fi
+}
+
 case "$cmd" in
     install)
         if [[ ! -x "$BUILT_BIN" && ! -x "$INSTALLED_BIN" ]]; then
@@ -76,13 +90,8 @@ case "$cmd" in
         ln -sf "$INSTALLED_BIN" "${HOME}/.local/bin/inir-accel"
 
         # 2. Hook into iNiR's native state bin cache ($STATE_BIN_DIR/inir-*)
-        for gobin in \
-            inir-washi \
-            inir-vscode-themegen \
-            inir-zed-themegen \
-            inir-opencode-themegen \
-            inir-system24-themegen
-        do
+        for gobin in "${ALL_GO[@]}"; do
+            [[ " ${PARITY_GO[*]} " == *" ${gobin} "* ]] || { restore_go "$gobin"; continue; }
             if [[ -f "${STATE_BIN_DIR}/${gobin}" && ! -L "${STATE_BIN_DIR}/${gobin}" ]]; then
                 mv -f "${STATE_BIN_DIR}/${gobin}" "${STATE_BIN_DIR}/${gobin}.go.bak"
             fi
@@ -100,23 +109,12 @@ case "$cmd" in
 
         echo "[inir-rust-plugin] Live Rust accelerators installed:"
         echo "  - Resident bin : ${INSTALLED_BIN} (linked at ~/.local/bin/inir-accel)"
-        echo "  - Go hooks     : ${STATE_BIN_DIR}/inir-{washi,vscode-themegen,zed-themegen,opencode-themegen,system24-themegen} -> ${INSTALLED_BIN}"
-        echo "  - Venv python3 : ${VENV_BIN_DIR}/python3 -> ${INSTALLED_BIN} (fallback: python3.real)"
+        echo "  - Go hooks     : ${PARITY_GO[*]} -> ${INSTALLED_BIN} (the rest stay original)"
+        echo "  - Venv python3 : ${VENV_BIN_DIR}/python3 -> ${INSTALLED_BIN} (Material and region; the rest go to python3.real)"
         ;;
     uninstall)
-        for gobin in \
-            inir-washi \
-            inir-vscode-themegen \
-            inir-zed-themegen \
-            inir-opencode-themegen \
-            inir-system24-themegen
-        do
-            if [[ -L "${STATE_BIN_DIR}/${gobin}" ]]; then
-                rm -f "${STATE_BIN_DIR}/${gobin}"
-            fi
-            if [[ -f "${STATE_BIN_DIR}/${gobin}.go.bak" ]]; then
-                mv -f "${STATE_BIN_DIR}/${gobin}.go.bak" "${STATE_BIN_DIR}/${gobin}"
-            fi
+        for gobin in "${ALL_GO[@]}"; do
+            restore_go "$gobin"
         done
         if [[ -e "${VENV_BIN_DIR}/python3.real" ]]; then
             REAL_PY="$(readlink -f "${VENV_BIN_DIR}/python3.real")"
@@ -136,7 +134,7 @@ case "$cmd" in
         echo "=== inir-rust-plugin Status ==="
         echo "Workspace      : ${PLUGIN_ROOT}"
         echo "Resident Binary: ${INSTALLED_BIN} ($( [[ -x "$INSTALLED_BIN" ]] && echo "INSTALLED & ACTIVE" || echo "NOT INSTALLED" ))"
-        for gobin in inir-washi inir-vscode-themegen inir-zed-themegen inir-opencode-themegen inir-system24-themegen; do
+        for gobin in "${ALL_GO[@]}"; do
             echo "Go Hook (${gobin}): $(readlink -f "${STATE_BIN_DIR}/${gobin}" 2>/dev/null || echo "none")"
         done
         echo "Venv Hook      : ${VENV_BIN_DIR}/python3 -> $(readlink -f "${VENV_BIN_DIR}/python3" 2>/dev/null || echo "none")"

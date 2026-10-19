@@ -196,54 +196,9 @@ fn handle_python_shim(args: &[String]) -> ! {
             }
             exec_real_python(args);
         }
-        "thumbgen.py" => {
-            if thumbgen::run_cli(script_args).is_ok() {
-                std::process::exit(0);
-            }
-            exec_real_python(args);
-        }
-        "generate_terminal_configs.py" => {
-            if themegens::run_generate_terminal_configs_cli(script_args).is_ok() {
-                std::process::exit(0);
-            }
-            exec_real_python(args);
-        }
-        "claude_code_theme.py" => {
-            if helpers::run_claude_code_theme_cli(script_args).is_ok() {
-                std::process::exit(0);
-            }
-            exec_real_python(args);
-        }
-        "system24_palette.py" => {
-            if themegens::run_system24_themegen_cli(script_args).is_ok() {
-                std::process::exit(0);
-            }
-            exec_real_python(args);
-        }
-        "extract_cover_colors.py" => {
-            if helpers::run_extract_cover_colors_cli(script_args).is_ok() {
-                std::process::exit(0);
-            }
-            exec_real_python(args);
-        }
-        "resolve_audio_source.py" => {
-            std::process::exit(helpers::run_resolve_audio_source_cli(script_args));
-        }
-        "clipboard-store.py" => {
-            std::process::exit(helpers::run_clipboard_store_cli(script_args));
-        }
-        "keyboard_lock_state_daemon.py" => {
-            std::process::exit(cmd_keyboard_lock_daemon(script_args));
-        }
-        "dev_hot_reload.py" => {
-            std::process::exit(cmd_dev_hot_reload(script_args));
-        }
-        "detect_sensors.py" => {
-            std::process::exit(cmd_detect_sensors(script_args));
-        }
-        "scan-plugins.py" => {
-            std::process::exit(cmd_scan_plugins());
-        }
+        // Every other helper stays with the original until test/parity.py shows its port byte for byte the
+        // same: a port that only looks right wrote half a VSCode theme into the maintainer's editor. Their ports
+        // are still reachable by name (`inir-accel thumbgen`, a `thumbgen.py` symlink) for the parity suite.
         _ => {
             exec_real_python(args);
         }
