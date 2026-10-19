@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [--quick] [--keep] [-j N]
+    test/parity.py [washi] [material] [region] [opencode] [--quick] [--keep] [-j N]
 
 Every case runs twice, once through the original (washi built from the shell's Go sources, Material and region
 through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
@@ -433,6 +433,80 @@ def region_suite(work: Path, quick: bool, jobs: int):
     return list(pmap(one, cases, jobs))
 
 
+
+# ---------------------------------------------------------------- themegens
+
+
+def build_go(work: Path, pkg: str) -> Path:
+    exe = work / f"go-{pkg}"
+    if not exe.exists():
+        cache = TARGET / "parity-gocache"
+        cache.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, GOCACHE=str(cache), GOFLAGS="-mod=mod", GOTOOLCHAIN="local")
+        subprocess.run(["go", "build", "-trimpath", "-o", str(exe), f"./scripts/colors/{pkg}"], cwd=SHELL, env=env, check=True)
+    return exe
+
+
+def theme_inputs(rng: random.Random, base: Path) -> None:
+    """scss, palette.json and terminal.json the way the shell writes them, with keys dropped, blanked and broken."""
+    gen = base / "home/.local/state/quickshell/user/generated"
+    gen.mkdir(parents=True, exist_ok=True)
+    live = HOME / ".local/state/quickshell/user/generated"
+    hexes = lambda: "#%06x" % rng.randrange(1 << 24)
+    odd = lambda: rng.choice(["", "#abc", "zzzzzz", "#-1ffff", "#1g2h3i", "#FFAA00", "#ffaa0080", "nothex", hexes()])
+    pal = json.loads((live / "palette.json").read_text()) if rng.random() < 0.3 and (live / "palette.json").exists() else {}
+    for k in ("primary", "on_primary", "primary_container", "secondary", "tertiary", "surface", "surface_container",
+              "surface_container_high", "on_surface", "on_surface_variant", "outline", "outline_variant", "error",
+              "success", "inverse_surface", "inverse_on_surface", "inverse_primary", "background", "surfaceContainer",
+              "onSurface", "inversePrimary", "shadow"):
+        r = rng.random()
+        if r < 0.6:
+            pal[k] = hexes()
+        elif r < 0.7:
+            pal[k] = odd()
+        elif r < 0.75:
+            pal[k] = rng.choice([1, None, True, ["#fff"]])
+    term = {f"term{i}": (hexes() if rng.random() < 0.9 else odd()) for i in range(16) if rng.random() < 0.92}
+    scss = "".join(f"${k}: {v};\n" for k, v in list(pal.items())[: rng.randrange(0, 12)] if isinstance(v, str))
+    scss += rng.choice(["$darkmode: True;\n", "$darkmode: False;\n", "  $transparent:False; extra\n", ""])
+    (gen / "material_colors.scss").write_text(scss)
+    (gen / "palette.json").write_text(json.dumps(pal, indent=rng.choice([None, 2])) if rng.random() < 0.95 else "{broken")
+    if rng.random() < 0.95:
+        (gen / "terminal.json").write_text(json.dumps(term))
+
+
+def opencode_suite(work: Path, quick: bool, jobs: int):
+    go = build_go(work, "opencode_themegen")
+    bindir = work / "accel-bin"
+    bindir.mkdir(exist_ok=True)
+    link = bindir / "inir-opencode-themegen"
+    if not link.exists():
+        link.symlink_to(ACCEL)
+    n = 40 if quick else 400
+    cases = list(range(n)) + ["noscss", "outdir"]
+
+    def one(i):
+        res = []
+        for side, exe in (("orig", go), ("port", link)):
+            base = work / "opencode" / str(i) / side
+            base.mkdir(parents=True, exist_ok=True)
+            setup = (lambda b: theme_inputs(random.Random(f"opencode{i}"), b)) if isinstance(i, int) else None
+            gen = base / "home/.local/state/quickshell/user/generated"
+            argv = [str(exe)]
+            if i == "noscss":
+                argv += [str(gen / "missing.scss")]
+            elif i == "outdir":
+                theme_inputs(random.Random(7), base)
+                argv += [str(gen / "material_colors.scss"), str(gen / "palette.json"), str(gen / "terminal.json"), str(base / "out/deep/dir")]
+            r = run(argv, base, setup=setup)
+            r.stdout, r.stderr = (x.replace(str(base).encode(), b"BASE") for x in (r.stdout, r.stderr))
+            res.append(r)
+        shutil.rmtree(work / "opencode" / str(i), ignore_errors=True)
+        return i, "", compare(*res)
+
+    return list(pmap(one, cases, jobs))
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -445,7 +519,8 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    suites = [a for a in args if a in ("washi", "material", "region")] or ["washi", "material", "region"]
+    every = ("washi", "material", "region", "opencode")
+    suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
             sys.exit(f"parity: missing {need}")
@@ -454,7 +529,7 @@ def main():
     failed = 0
     try:
         for name in suites:
-            results = {"washi": washi_suite, "material": material_suite, "region": region_suite}[name](work, quick, jobs)
+            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]
             print(f"\n== {name}: {len(results) - len(bad)} of {len(results)} cases identical"

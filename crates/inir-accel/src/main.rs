@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, helpers, material, prewarm, region, sensors, themegens, thumbgen, washi};
+use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, washi};
 use std::env;
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -287,13 +287,7 @@ fn cmd_zed_themegen(args: &[String]) -> i32 {
 }
 
 fn cmd_opencode_themegen(args: &[String]) -> i32 {
-    match themegens::run_opencode_themegen_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
+    opencode::run_cli(args)
 }
 
 fn cmd_system24_themegen(args: &[String]) -> i32 {

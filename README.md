@@ -22,7 +22,7 @@ Suite de aceleración nativa en Rust para la shell **[iNiR](file:///home/user/in
    - [`prewarm.rs`](file:///home/user/inir-rust-plugin/crates/inir-core/src/prewarm.rs): Escáner y constructor paralelo de VFS QML (1514 archivos QML) compatible con `qs-rs`.
 2. **[`crates/inir-accel`](file:///home/user/inir-rust-plugin/crates/inir-accel/src/main.rs)**:
    - Binario multi-call (`inir-accel`) que funciona tanto por subcomandos directos como por intercepción transparente de `~/.local/state/quickshell/.venv/bin/python3` y `~/.local/state/quickshell/user/generated/bin/inir-washi`.
-   - Cuando la shell en ejecución invoca `~/.local/state/quickshell/.venv/bin/python3`, `inir-accel` responde en Rust solo `generate_colors_material.py` y `least_busy_region.py`, los dos con paridad byte a byte en `test/parity.py`; cualquier otro script (`thumbgen.py`, `generate_terminal_configs.py`, `ytmusic`, `-c`, `-m`) va vía `execv` a `python3.real`. De los binarios Go solo `inir-washi` se engancha; los themegens siguen siendo los originales. Un port entra en vivo cuando su suite de paridad da igual: el 2026-10-19 los themegens sin comparar escribían un tema de VSCode con 62 de 306 colores.
+   - Cuando la shell en ejecución invoca `~/.local/state/quickshell/.venv/bin/python3`, `inir-accel` responde en Rust solo `generate_colors_material.py` y `least_busy_region.py`, los dos con paridad byte a byte en `test/parity.py`; cualquier otro script (`thumbgen.py`, `generate_terminal_configs.py`, `ytmusic`, `-c`, `-m`) va vía `execv` a `python3.real`. De los binarios Go se enganchan `inir-washi` e `inir-opencode-themegen` (`opencode.rs`, 402 de 402 casos iguales); VSCode y Zed siguen siendo los originales. Un port entra en vivo cuando su suite de paridad da igual: el 2026-10-19 los themegens sin comparar escribían un tema de VSCode con 62 de 306 colores.
 3. **[`crates/inir-qml-plugin`](file:///home/user/inir-rust-plugin/crates/inir-qml-plugin/src/lib.rs)**:
    - Plugin QML nativo Qt6 (`import Inir.Native 1.0`, singleton `InirNative`) construido con `cxx-qt 0.10.0` que expone propiedades reactivas de telemetría y métodos `#[qinvokable]` sin crear subprocesos (`refreshResources`, `solveWashi`, `generateMaterialColors`, `computeLumaGridJson`, `makeThumbnail`, `fuzzySearchAppsJson`, `guessIcon`, `scanWidgetsJson`, `scanPluginsJson`, `prewarmVfsJson`).
 
@@ -77,7 +77,7 @@ stdout, stderr, código de salida y cada archivo escrito, byte por byte. Un port
 como "delegado", no como igual.
 
 ```bash
-python3 test/parity.py            # washi, material y region
+python3 test/parity.py            # washi, material, region y opencode
 python3 test/parity.py washi      # uno solo; --quick achica el corpus
 PARITY_SEED=2 PARITY_WASHI_N=3000 python3 test/parity.py washi
 ```
