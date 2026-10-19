@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [opencode] [--quick] [--keep] [-j N]
+    test/parity.py [washi] [material] [region] [opencode] [vscode] [--quick] [--keep] [-j N]
 
 Every case runs twice, once through the original (washi built from the shell's Go sources, Material and region
 through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
@@ -65,9 +65,12 @@ def run(argv, base: Path, setup=None, extra_env=None, cwd=None) -> Run:
         env.update(extra_env)
     if setup:
         setup(base)
-    before = set(tree(base))
+    before = tree(base)
     p = subprocess.run(argv, env=env, capture_output=True, cwd=cwd or base, timeout=120)
-    files = {k: v for k, v in tree(base).items() if k not in before or k.startswith("out/")}
+    after = tree(base)
+    # New, rewritten and deleted files (a run that edits settings.json or removes an extension counts).
+    files = {k: v for k, v in after.items() if before.get(k) != v or k.startswith("out/")}
+    files.update({k: b"<deleted>" for k in before if k not in after})
     return Run(p.returncode, p.stdout, p.stderr, files)
 
 
@@ -507,6 +510,128 @@ def opencode_suite(work: Path, quick: bool, jobs: int):
     return list(pmap(one, cases, jobs))
 
 
+VSCODE_FORKS = {"code": ("Code", ".vscode/extensions"), "codium": ("VSCodium", ".vscode-oss/extensions"),
+                "cursor": ("Cursor", ".cursor/extensions"), "windsurf": ("Windsurf", ".windsurf/extensions"),
+                "antigravity": ("Antigravity", ".antigravity/extensions")}
+
+
+def vscode_settings(rng: random.Random) -> bytes:
+    """settings.json as people have it: JSONC with comments and trailing commas, other themes, the old injection keys,
+    numbers Go turns into float64, HTML characters encoding/json escapes, and sometimes something broken."""
+    entries = []
+    theme = rng.choice([None, "Default Dark Modern", "iNiR Material", "iNiR Material Light", "One Dark <Pro> & co", ""])
+    if theme is not None:
+        entries.append(f'"workbench.colorTheme": {json.dumps(theme)}')
+    for k in ("workbench.colorCustomizations", "editor.tokenColorCustomizations", "editor.semanticTokenColorCustomizations"):
+        if rng.random() < 0.2:
+            entries.append(f'"{k}": {{"editor.background": "#101010"}}')
+    if rng.random() < 0.3:
+        entries.append('"inir.previousColorTheme": "Monokai"')
+    pool = ['"editor.fontSize": 14', '"editor.fontSize": 13.5', '"big": 12345678901234567890', '"tiny": 1e-7',
+            '"exp": 1E21', '"neg": -0.0', '"files.exclude": {"**/.git": true, "**/node_modules": false}',
+            '"terminal.integrated.env.linux": {"PATH": "/usr/bin:${env:PATH}"}', '"uni": "caf\\u00e9 ✓ \\ud83d\\ude00"',
+            '"html": "<script>&amp;</script>"', '"arr": [1, "two", null, {"x": []},]', '"esc": "tab\\tnl\\nq\\"s\\\\"',
+            '"url": "http://example.com/path//x" // trailing comment', '"empty": {}', '"nul": null']
+    entries += rng.sample(pool, rng.randrange(0, len(pool)))
+    rng.shuffle(entries)
+    body = ",\n".join(f"    {e}" for e in entries)
+    if rng.random() < 0.5:
+        body += ","
+    head = rng.choice(["", "// VS Code settings\n", "/* block\n comment */\n"])
+    text = f"{head}{{\n{body}\n}}\n"
+    if rng.random() < 0.04:
+        text = "{ broken"
+    elif rng.random() < 0.03:
+        text = ""
+    return text.encode()
+
+
+def vscode_state(rng: random.Random, base: Path) -> list:
+    """Installed forks (config dir present or not), their settings, extensions.json and a previous install."""
+    theme_inputs(rng, base)
+    home = base / "home"
+    present = [k for k in VSCODE_FORKS if rng.random() < 0.6]
+    for key in present:
+        name, ext = VSCODE_FORKS[key]
+        user = home / ".config" / name / "User"
+        user.mkdir(parents=True, exist_ok=True)
+        if rng.random() < 0.85:
+            (user / "settings.json").write_bytes(vscode_settings(rng))
+        extdir = home / ext
+        r = rng.random()
+        if r < 0.3:
+            extdir.mkdir(parents=True, exist_ok=True)
+            reg = [{"identifier": {"id": "ms-python.python"}, "version": "2026.1.0", "relativeLocation": "ms-python.python-2026.1.0"}]
+            if rng.random() < 0.4:
+                reg.append({"identifier": {"id": "inir.inir-material-theme"}, "version": "1.0.0"})
+            (extdir / "extensions.json").write_text(json.dumps(reg))
+        elif r < 0.4:
+            extdir.mkdir(parents=True, exist_ok=True)
+            (extdir / "extensions.json").write_text("not json")
+        if rng.random() < 0.3:
+            pkg = extdir / "inir-material-theme"
+            (pkg / "themes").mkdir(parents=True, exist_ok=True)
+            (pkg / "package.json").write_text(rng.choice(['{"contributes": {"themes": [{"label": "iNiR Material"}]}}', "{}", "x"]))
+            (pkg / "themes" / "inir-material-color-theme.json").write_text("{}")
+        if rng.random() < 0.15:
+            (extdir / "inir.inir-theme-1.0.0").mkdir(parents=True, exist_ok=True)
+            (extdir / "inir.inir-theme-1.0.0" / "package.json").write_text("{}")
+    return present
+
+
+def vscode_suite(work: Path, quick: bool, jobs: int):
+    """The shell's calls (30-editors.sh): generate with --forks in order, --strip with --forks, and --strip alone,
+    which walks a Go map: its output lines come in random order, so that case compares them sorted."""
+    go = build_go(work, "vscode_themegen")
+    port = Path(os.environ["PARITY_VSCODE_EXE"]) if os.environ.get("PARITY_VSCODE_EXE") else None
+    if port is None:
+        bindir = work / "accel-bin"
+        bindir.mkdir(exist_ok=True)
+        port = bindir / "inir-vscode-themegen"
+        if not port.exists():
+            port.symlink_to(ACCEL)
+    n = 30 if quick else 300
+    cases = list(range(n)) + ["nopalette", "flagstyle", "unknown"]
+
+    def one(i):
+        res, unordered = [], False
+        for side, exe in (("orig", go), ("port", port)):
+            # Both sides at the same path: extensions.json stores the absolute extension dir.
+            base = work / "vscode" / str(i)
+            shutil.rmtree(base, ignore_errors=True)
+            base.mkdir(parents=True)
+            rng = random.Random(f"vscode{i}")
+            present = vscode_state(rng, base)
+            gen = base / "home/.local/state/quickshell/user/generated"
+            flags = ["--colors", str(gen / "palette.json"), "--terminal-json", str(gen / "terminal.json"), "--scss", str(gen / "material_colors.scss")]
+            mode = rng.random() if isinstance(i, int) else 0
+            forks = rng.sample(list(VSCODE_FORKS) + ["code-insiders"], rng.randrange(1, 4))
+            if i == "nopalette":
+                argv = [str(exe), "--colors", str(gen / "missing.json"), "--forks", "code"]
+            elif i == "flagstyle":
+                argv = [str(exe), f"-colors={gen / 'palette.json'}", "-forks=code", "--forks=cursor"]
+            elif i == "unknown":
+                argv = [str(exe)] + flags + ["--forks", "nope", "--forks", "code"]
+            elif mode < 0.7:
+                argv = [str(exe)] + flags + [x for f in forks for x in ("--forks", f)]
+            elif mode < 0.85:
+                argv = [str(exe), "--strip"] + [x for f in forks for x in ("--forks", f)]
+            else:
+                argv = [str(exe), "--strip"]
+                unordered = True
+            r = run(argv, base)
+            if unordered:
+                r.stdout, r.stderr = (b"".join(sorted(x.splitlines(keepends=True))) for x in (r.stdout, r.stderr))
+            # A Go panic (the original slices short hex like "#abc" in mutedInk) prints goroutine addresses that
+            # change every run: what the shell keeps is the panic line, the exit code and the files left behind.
+            r.stderr = r.stderr.split(b"\n\ngoroutine ")[0]
+            res.append(r)
+        shutil.rmtree(work / "vscode" / str(i), ignore_errors=True)
+        return i, "", compare(*res)
+
+    return list(pmap(one, cases, jobs))
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -519,7 +644,7 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    every = ("washi", "material", "region", "opencode")
+    every = ("washi", "material", "region", "opencode", "vscode")
     suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
@@ -529,7 +654,7 @@ def main():
     failed = 0
     try:
         for name in suites:
-            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite}[name](work, quick, jobs)
+            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]
             print(f"\n== {name}: {len(results) - len(bad)} of {len(results)} cases identical"
