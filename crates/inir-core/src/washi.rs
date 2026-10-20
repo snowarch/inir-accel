@@ -10,7 +10,7 @@ use crate::gomath;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-pub const VERSION: i32 = 31;
+pub const VERSION: i32 = 32;
 
 // ---------------------------------------------------------------- colour (colour.go)
 
@@ -1134,7 +1134,12 @@ impl Solver<'_> {
     }
 
     fn mark(&self, h: f64, c: f64, dl: f64) -> RGB {
-        solve(self.s, h, c, self.s.mark_l + dl, reads_on(READ_MARK, &self.grounds))
+        let mut from = self.s.mark_l + dl;
+        if self.s.dark && (85.0..=125.0).contains(&h) {
+            // Yellow is only yellow when light: at the band's lightness kihada turned olive on a night widget.
+            from = gmax(from, 0.86);
+        }
+        solve(self.s, h, c, from, reads_on(READ_MARK, &self.grounds))
     }
 
     fn highlight(&self, seed: LCH) -> RGB {
