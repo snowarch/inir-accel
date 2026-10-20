@@ -10,7 +10,7 @@ use crate::gomath;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-pub const VERSION: i32 = 30;
+pub const VERSION: i32 = 31;
 
 // ---------------------------------------------------------------- colour (colour.go)
 
@@ -857,10 +857,10 @@ fn washi_language() -> Language {
                 paper_c: 0.03,
                 steps: [0.055, 0.11],
                 ink_l: 0.94,
-                accent_l: 0.66,
-                accent_c: [0.04, 0.085],
-                mark_l: 0.7,
-                mark_c: 0.1,
+                accent_l: 0.72,
+                accent_c: [0.13, 0.18],
+                mark_l: 0.74,
+                mark_c: 0.15,
                 widgets: 1.0,
             },
             Spec {
@@ -872,9 +872,9 @@ fn washi_language() -> Language {
                 steps: [-0.035, -0.07],
                 ink_l: 0.25,
                 accent_l: 0.56,
-                accent_c: [0.05, 0.1],
+                accent_c: [0.11, 0.16],
                 mark_l: 0.62,
-                mark_c: 0.12,
+                mark_c: 0.16,
                 widgets: 1.0,
             },
             Spec {
@@ -886,9 +886,9 @@ fn washi_language() -> Language {
                 steps: [-0.03, -0.06],
                 ink_l: 0.21,
                 accent_l: 0.6,
-                accent_c: [0.06, 0.115],
+                accent_c: [0.12, 0.17],
                 mark_l: 0.65,
-                mark_c: 0.13,
+                mark_c: 0.17,
                 widgets: 1.1,
             },
         ],
@@ -903,7 +903,7 @@ fn washi_language() -> Language {
         dark_on: [0.2, 0.03],
         tonal_on: false,
         fill_from: [0.66, 0.52],
-        fill_c: [0.09, 0.15],
+        fill_c: [0.12, 0.18],
         whole: false,
         pigments: false,
         fixed_ink: false,
@@ -1239,7 +1239,7 @@ impl Solver<'_> {
                 // Under glass a window beside the shell carries the frost's hue. Ink keeps its paper.
                 let frost = paper_of(self.lang, s, "wallpaper", self.req);
                 base.h = frost.h;
-                base.c = gmax(base.c, gmin(frost.c, if s.dark { 0.024 } else { 0.018 }));
+                base.c = gmax(base.c, gmin(frost.c, if s.dark { 0.008 } else { 0.006 }));
                 pc.h = frost.h;
             }
         }
@@ -1247,7 +1247,7 @@ impl Solver<'_> {
             let mut q = base;
             let d = if s.dark { d * APPS_NIGHT_STEP } else { d };
             q.l = clamp_f(q.l + sign * d, 0.0, 1.0);
-            q.c = gmin(0.05, q.c * c_scale);
+            q.c = gmin(0.012, q.c * c_scale);
             q.rgb().hex()
         };
         let (al, hl, dl) = (accent.lch(), highlight.lch(), danger.lch());
@@ -1370,7 +1370,7 @@ impl Solver<'_> {
     }
 }
 
-const APPS_FILL_C: [f64; 2] = [0.085, 0.12];
+const APPS_FILL_C: [f64; 2] = [0.12, 0.17];
 const PAPER_FILL_C: f64 = 0.12;
 const APPS_ALERT_C: [f64; 2] = [0.11, 0.12];
 const APPS_PAPER_FROM_L: f64 = 0.62;
@@ -1466,13 +1466,25 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
     p.on_accent_container = v.on_container(cont, al.h, gmin(0.12, al.c)).hex();
 
     let highlight_choice = req.highlight.as_str();
-    let (mut highlight, highlight_seed) = match highlight_choice {
+    let (mut highlight, mut highlight_seed) = match highlight_choice {
         "accent" => (accent, accent_seed),
         "wallpaper" => (RGB::default(), v.seed_of("wallpaperHighlight", 0.0, lang.highlight_seeds, "orange")),
         "theme" => (RGB::default(), v.seed_of("themeHighlight", 0.0, lang.highlight_seeds, "orange")),
         "custom" => (RGB::default(), v.on_wheel(hsl(req.highlight_hue, 0.92, 0.58).lch())),
         other => (RGB::default(), v.seed_of(other, 0.0, lang.highlight_seeds, "orange")),
     };
+    if highlight_choice == "wallpaper" && matches!(lang.id, LangId::Washi) && hue_distance(highlight_seed.h, al.h) < 30.0 {
+        // A wallpaper of one hue gave accent and highlight the same red: the highlight takes the mineral pigment
+        // farthest from the accent, as the widgets' second series does.
+        let mut far = 0.0;
+        for h in [262.0, 160.0, 85.0] {
+            let d = hue_distance(h, al.h);
+            if d > far {
+                far = d;
+                highlight_seed = lch(0.72, 0.15, h);
+            }
+        }
+    }
     if highlight_choice != "accent" {
         highlight = v.highlight(highlight_seed);
     }
