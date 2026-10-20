@@ -1,6 +1,6 @@
 //! `scripts/colors/opencode_themegen/main.go`, line for line: `inir-opencode-themegen [scss [palette [terminal [outdir]]]]`.
 //! This code was written by: Hikari.
-use crate::gotheme::{blend, marshal_indent, merge, parse_scss, pick, read_string_map_json, Colors, J};
+use crate::gotheme::{blend, go_err, marshal_indent, merge, parse_scss, pick, read_string_map_json, Colors, J};
 use crate::jmap;
 use std::fs;
 use std::path::Path;
@@ -35,14 +35,6 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
     println!("[opencode] Theme generated: {}", output_path.display());
     0
-}
-
-fn go_err(e: &std::io::Error) -> String {
-    let s = e.to_string();
-    // Go prints the bare errno text ("permission denied"); Rust appends " (os error N)" and capitalises.
-    let s = s.split(" (os error").next().unwrap_or(&s).to_string();
-    let mut c = s.chars();
-    c.next().map(|f| f.to_lowercase().collect::<String>() + c.as_str()).unwrap_or_default()
 }
 
 fn generate(colors: &Colors) -> J {

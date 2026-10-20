@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, washi};
+use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, vscode, washi};
 use std::env;
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -32,7 +32,7 @@ fn main() {
     // 2. Multi-call binary dispatch if invoked via script/binary symlink
     match argv0.as_str() {
         "inir-washi" => std::process::exit(cmd_washi(&args[1..])),
-        "inir-vscode-themegen" => std::process::exit(themegens::run_vscode_themegen_cli(&args[1..])),
+        "inir-vscode-themegen" => std::process::exit(vscode::run_cli(&args[0], &args[1..])),
         "inir-zed-themegen" => std::process::exit(cmd_zed_themegen(&args[1..])),
         "inir-opencode-themegen" => std::process::exit(cmd_opencode_themegen(&args[1..])),
         "inir-system24-themegen" | "system24_palette.py" => {
@@ -86,7 +86,7 @@ fn main() {
         "region" | "least-busy-region" => cmd_region(rest),
         "thumbgen" | "thumbnails" => cmd_thumbgen(rest),
         "terminals" | "generate-terminal-configs" => cmd_terminals(rest),
-        "vscode-themegen" => themegens::run_vscode_themegen_cli(rest),
+        "vscode-themegen" => vscode::run_cli(&args[0], rest),
         "zed-themegen" => cmd_zed_themegen(rest),
         "opencode-themegen" => cmd_opencode_themegen(rest),
         "system24-themegen" => cmd_system24_themegen(rest),

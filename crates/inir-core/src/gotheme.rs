@@ -113,10 +113,17 @@ pub fn pick(m: &Colors, key: &str, fallback: &str) -> String {
     }
 }
 
-/// `fmt.Sscanf(s, "%x", &v)`: an optional sign, then hex digits; nothing scanned leaves 0.
+/// `fmt.Sscanf(s, "%x", &v)`: leading spaces skipped (a newline stops the scan), an optional sign, then hex
+/// digits; nothing scanned leaves 0.
 pub fn hex_byte(s: &str) -> i64 {
-    let b = s.as_bytes();
+    hex_byte_b(s.as_bytes())
+}
+
+pub fn hex_byte_b(b: &[u8]) -> i64 {
     let mut i = 0;
+    while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\x0b' | b'\x0c' | b'\r') {
+        i += 1;
+    }
     let mut neg = false;
     if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
         neg = b[i] == b'-';
@@ -181,6 +188,15 @@ pub fn adjust_lightness_scale(color: &str, factor: f64) -> String {
     rgb_to_hex(f(r), f(g), f(b))
 }
 
+/// An `os` error's text as Go prints it: the bare errno text, lower case.
+pub fn go_err(e: &std::io::Error) -> String {
+    let s = e.to_string();
+    // Go prints the bare errno text ("permission denied"); Rust appends " (os error N)" and capitalises.
+    let s = s.split(" (os error").next().unwrap_or(&s).to_string();
+    let mut c = s.chars();
+    c.next().map(|f| f.to_lowercase().collect::<String>() + c.as_str()).unwrap_or_default()
+}
+
 /// The JSON values the themegens build: Go maps (sorted on output), slices and scalars.
 #[derive(Clone, Debug)]
 pub enum J {
@@ -190,6 +206,8 @@ pub enum J {
     Null,
     Arr(Vec<J>),
     Map(BTreeMap<String, J>),
+    /// A Go struct: its fields in declaration order.
+    Obj(Vec<(String, J)>),
 }
 
 impl From<&str> for J {
@@ -229,6 +247,54 @@ macro_rules! jmap {
     }};
 }
 
+/// `json.Marshal(v)`: compact, failing like Go on a value JSON cannot hold.
+pub fn marshal(v: &J) -> Result<String, String> {
+    check_finite(v)?;
+    let mut out = String::new();
+    write_compact(&mut out, v);
+    Ok(out)
+}
+
+fn check_finite(v: &J) -> Result<(), String> {
+    match v {
+        J::Num(f) if !f.is_finite() => Err(format!("json: unsupported value: {}", if f.is_nan() { "NaN" } else if *f > 0.0 { "+Inf" } else { "-Inf" })),
+        J::Arr(items) => items.iter().try_for_each(check_finite),
+        J::Map(m) => m.values().try_for_each(check_finite),
+        J::Obj(fields) => fields.iter().try_for_each(|(_, v)| check_finite(v)),
+        _ => Ok(()),
+    }
+}
+
+fn write_compact(out: &mut String, v: &J) {
+    let pairs = |out: &mut String, it: &mut dyn Iterator<Item = (&String, &J)>| {
+        out.push('{');
+        for (i, (k, item)) in it.enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            gojson::write_str(out, k);
+            out.push(':');
+            write_compact(out, item);
+        }
+        out.push('}');
+    };
+    match v {
+        J::Arr(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_compact(out, item);
+            }
+            out.push(']');
+        }
+        J::Map(m) => pairs(out, &mut m.iter()),
+        J::Obj(f) => pairs(out, &mut f.iter().map(|(k, v)| (k, v))),
+        scalar => write(out, scalar, "", "", 0),
+    }
+}
+
 /// `json.MarshalIndent(v, prefix, indent)`.
 pub fn marshal_indent(v: &J, prefix: &str, indent: &str) -> String {
     let mut out = String::new();
@@ -266,13 +332,18 @@ fn write(out: &mut String, v: &J, prefix: &str, indent: &str, depth: usize) {
             newline(out, prefix, indent, depth);
             out.push(']');
         }
-        J::Map(m) => {
-            if m.is_empty() {
+        J::Map(_) | J::Obj(_) => {
+            let fields: Vec<(&String, &J)> = match v {
+                J::Map(m) => m.iter().collect(),
+                J::Obj(f) => f.iter().map(|(k, v)| (k, v)).collect(),
+                _ => unreachable!(),
+            };
+            if fields.is_empty() {
                 out.push_str("{}");
                 return;
             }
             out.push('{');
-            for (i, (k, item)) in m.iter().enumerate() {
+            for (i, (k, item)) in fields.into_iter().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }

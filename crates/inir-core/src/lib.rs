@@ -5,6 +5,7 @@
 pub mod apps;
 pub mod daemons;
 pub mod gojson;
+pub mod gojsonv;
 pub mod gomath;
 pub mod gotheme;
 pub mod helpers;
@@ -15,6 +16,7 @@ pub mod region;
 pub mod sensors;
 pub mod themegens;
 pub mod thumbgen;
+pub mod vscode;
 pub mod washi;
 
 #[cfg(test)]
