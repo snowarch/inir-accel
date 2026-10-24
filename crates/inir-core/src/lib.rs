@@ -27,7 +27,7 @@ mod tests {
     fn test_washi_default_and_airisu() {
         let req = washi::default_request();
         let out = washi::solve_all(&req, "{}");
-        assert_eq!(out.version, 30);
+        assert_eq!(out.version, washi::VERSION);
         assert!(out.schemes.contains_key("dark"));
         assert!(out.schemes.contains_key("ink"));
         assert!(out.schemes.contains_key("light"));
