@@ -80,7 +80,7 @@ pub fn probe(args: &[String]) -> i32 {
 const PROBE_TONES: [f64; 16] = [0.0, 4.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 98.0, 99.0, 100.0];
 
 /// The script the port was transcribed from: any other text is the original's to run.
-const SCRIPT_FNV: u64 = 0x4affdddb02445603;
+const SCRIPT_FNV: u64 = 0x1726c92a649ecda0;
 
 /// Versions the transcription matches (Pillow's resampler and warnings, numpy's sums, materialyoucolor's maths).
 const LIBRARIES: [&str; 3] = ["materialyoucolor-3.0.4.dist-info", "pillow-12.3.0.dist-info", "numpy-2.5.4.dist-info"];

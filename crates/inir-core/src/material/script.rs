@@ -1095,16 +1095,19 @@ fn flow(mut args: Args, image: Option<pixels::Image>, ctx: &Context) -> Result<i
     let variant = Variant::from_scheme_name(&args.scheme);
     let s = Scheme::new(hct, variant, darkmode, 0.0);
     let soften = args.soften && softens(&args.scheme);
-    let mut material = Dict::default();
-    for &role in ROLES {
-        let mut g = scheme::get_hct(role, &s);
+    let strength_k = args.color_strength;
+    let tamed = |mut g: Hct| {
         if soften {
             g = Hct::from_hct(g.hue, g.chroma * 0.60, g.tone);
         }
-        if (args.color_strength - 1.0).abs() > 1e-6 && g.chroma > 2.0 {
-            g = Hct::from_hct(g.hue, g.chroma * args.color_strength, g.tone);
+        if (strength_k - 1.0).abs() > 1e-6 && g.chroma > 2.0 {
+            g = Hct::from_hct(g.hue, g.chroma * strength_k, g.tone);
         }
-        material.set(role.name(), rgb_hex(g.argb));
+        g
+    };
+    let mut material = Dict::default();
+    for &role in ROLES {
+        material.set(role.name(), rgb_hex(tamed(scheme::get_hct(role, &s)).argb));
     }
 
     if args.scheme != "scheme-monochrome" {
@@ -1114,9 +1117,9 @@ fn flow(mut args: Args, image: Option<pixels::Image>, ctx: &Context) -> Result<i
             }
             let tone = hct_of(material.get_or(key, ""))?.tone;
             if darkmode && !(70.0..=85.0).contains(&tone) {
-                material.set(key, rgb_hex(palette.get_hct(80.0).argb));
+                material.set(key, rgb_hex(tamed(palette.get_hct(80.0)).argb));
             } else if !darkmode && !(25.0..=50.0).contains(&tone) {
-                material.set(key, rgb_hex(palette.get_hct(40.0).argb));
+                material.set(key, rgb_hex(tamed(palette.get_hct(40.0)).argb));
             }
             let container = format!("{key}Container");
             let mut up = key.chars();
@@ -1124,11 +1127,11 @@ fn flow(mut args: Args, image: Option<pixels::Image>, ctx: &Context) -> Result<i
             if material.has(&container) {
                 let ctone = hct_of(material.get_or(&container, ""))?.tone;
                 if darkmode && !(20.0..=40.0).contains(&ctone) {
-                    material.set(&container, rgb_hex(palette.get_hct(30.0).argb));
-                    material.set(&on_container, rgb_hex(palette.get_hct(90.0).argb));
+                    material.set(&container, rgb_hex(tamed(palette.get_hct(30.0)).argb));
+                    material.set(&on_container, rgb_hex(tamed(palette.get_hct(90.0)).argb));
                 } else if !darkmode && !(80.0..=95.0).contains(&ctone) {
-                    material.set(&container, rgb_hex(palette.get_hct(90.0).argb));
-                    material.set(&on_container, rgb_hex(palette.get_hct(10.0).argb));
+                    material.set(&container, rgb_hex(tamed(palette.get_hct(90.0)).argb));
+                    material.set(&on_container, rgb_hex(tamed(palette.get_hct(10.0)).argb));
                 }
             }
             let strength = py_max(0.3, args.color_strength);
