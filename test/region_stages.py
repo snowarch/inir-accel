@@ -9,6 +9,7 @@ screen: the screen image of every mode at several screen sizes, against the scri
 import glob
 import hashlib
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -21,10 +22,18 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 HOME = Path.home()
-SHELL = Path(os.environ.get("INIR_SHELL", HOME / "inir-eco/inir"))
-TARGET = Path(os.environ.get("CARGO_TARGET_DIR", "/mnt/build/inir-rust-plugin-target"))
+SHELL = Path(os.environ.get("INIR_SHELL", HOME / ".config/quickshell/inir"))
+# cargo knows where its builds go (a .cargo/config.toml may move them off the repo)
+def cargo_target() -> Path:
+    try:
+        meta = subprocess.run(["cargo", "metadata", "--format-version", "1", "--no-deps"], cwd=ROOT,
+                              capture_output=True, text=True, check=True).stdout
+        return Path(json.loads(meta)["target_directory"])
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError):
+        return ROOT / "target"
+TARGET = Path(os.environ.get("CARGO_TARGET_DIR") or cargo_target())
 ACCEL = os.environ.get("ACCEL", str(TARGET / "release/inir-accel"))
-WALLPAPERS = Path(os.environ.get("WALLPAPERS", HOME / "Imágenes/Wallpapers"))
+WALLPAPERS = Path(os.environ.get("WALLPAPERS", HOME / "Pictures/Wallpapers"))
 
 spec = importlib.util.spec_from_file_location("lbr", SHELL / "scripts/images/least_busy_region.py")
 lbr = importlib.util.module_from_spec(spec)

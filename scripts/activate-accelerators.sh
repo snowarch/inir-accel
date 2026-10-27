@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # This code was written by: Hikari.
-# Non-invasive live accelerator manager for iNiR (never modifies /home/user/inir or /home/user/inir-cli).
+# Non-invasive live accelerator manager for iNiR (never modifies the shell or inir-cli).
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="/mnt/build/inir-rust-plugin-target"
+TARGET_DIR="${CARGO_TARGET_DIR:-$(cd "$PLUGIN_ROOT" && cargo metadata --format-version 1 --no-deps 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])' 2>/dev/null || true)}"
+TARGET_DIR="${TARGET_DIR:-$PLUGIN_ROOT/target}"
 RELEASE_DIR="${TARGET_DIR}/release"
 BUILT_BIN="${RELEASE_DIR}/inir-accel"
 
@@ -23,7 +25,7 @@ Usage: $(basename "$0") [install|uninstall|status|env]
 Commands:
   install    Copy release binary into ${INSTALLED_BIN} and activate live Rust hooks in
              ${STATE_BIN_DIR}/inir-washi and ${VENV_BIN_DIR}/python3
-             (Zero modifications to /home/user/inir; survives target/ cache cleanups)
+             (Zero modifications to the shell; survives target/ cache cleanups)
   uninstall  Remove hooks and restore original venv python3 and Go inir-washi
   status     Show active accelerator hooks and build status
   env        Print shell export lines for PATH and QML2_IMPORT_PATH

@@ -9,7 +9,7 @@ the venv's python3 shim). Each run gets its own HOME and XDG dirs, so nothing to
 only when stdout, stderr, the exit code and every file the run leaves behind are byte for byte the same. The shim's
 fallback to real Python points at a stub that fails, so a port that gives up shows as a failure instead of a pass.
 
-Environment: PARITY_SEED and PARITY_WASHI_N widen the generated corpus; INIR_SHELL (default ~/inir-eco/inir), ACCEL (default the release build, else bin/inir-accel),
+Environment: PARITY_SEED and PARITY_WASHI_N widen the generated corpus; INIR_SHELL (default ~/.config/quickshell/inir), ACCEL (default the release build, else bin/inir-accel),
 INIR_VENV (default ~/.local/state/quickshell/.venv), WALLPAPERS (default ~/Imágenes/Wallpapers, optional).
 """
 import concurrent.futures
@@ -25,12 +25,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HOME = Path.home()
-SHELL = Path(os.environ.get("INIR_SHELL", HOME / "inir-eco/inir"))
+SHELL = Path(os.environ.get("INIR_SHELL", HOME / ".config/quickshell/inir"))
 VENV = Path(os.environ.get("INIR_VENV", HOME / ".local/state/quickshell/.venv"))
 REAL_PY = VENV / "bin/python3.real"
-TARGET = Path(os.environ.get("CARGO_TARGET_DIR", "/mnt/build/inir-rust-plugin-target"))
+# cargo knows where its builds go (a .cargo/config.toml may move them off the repo)
+def cargo_target() -> Path:
+    try:
+        meta = subprocess.run(["cargo", "metadata", "--format-version", "1", "--no-deps"], cwd=ROOT,
+                              capture_output=True, text=True, check=True).stdout
+        return Path(json.loads(meta)["target_directory"])
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError):
+        return ROOT / "target"
+TARGET = Path(os.environ.get("CARGO_TARGET_DIR") or cargo_target())
 ACCEL = Path(os.environ.get("ACCEL", TARGET / "release/inir-accel" if (TARGET / "release/inir-accel").exists() else ROOT / "bin/inir-accel"))
-WALLPAPERS = Path(os.environ.get("WALLPAPERS", HOME / "Imágenes/Wallpapers"))
+WALLPAPERS = Path(os.environ.get("WALLPAPERS", HOME / "Pictures/Wallpapers"))
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 
 

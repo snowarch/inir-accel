@@ -26,6 +26,18 @@ pub struct PrewarmReport {
     pub elapsed_ms: u128,
 }
 
+/// The shell people run: `INIR_SHELL` when set (a checkout), else where setup installs it.
+pub fn shell_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("INIR_SHELL").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));
+    config.join("quickshell/inir")
+}
+
 /// Parallel VFS scanner and builder compatible with `qs-rs`'s `$XDG_RUNTIME_DIR/quickshell/by-shell/inir/vfs/qs`
 /// and `$XDG_RUNTIME_DIR/qs-rs/vfs-inir`.
 pub fn build_and_prewarm_vfs(shell_root: &Path, vfs_target: Option<&Path>) -> io::Result<PrewarmReport> {

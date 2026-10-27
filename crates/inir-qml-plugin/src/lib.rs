@@ -339,11 +339,11 @@ impl qobject::InirNative {
     fn prewarm_vfs_json(&self, shell_dir: &QString) -> QString {
         let dir_str = shell_dir.to_string();
         let path = if dir_str.is_empty() {
-            Path::new("/home/user/inir")
+            prewarm::shell_dir()
         } else {
-            Path::new(&dir_str)
+            Path::new(&dir_str).to_path_buf()
         };
-        match prewarm::build_and_prewarm_vfs(path, None) {
+        match prewarm::build_and_prewarm_vfs(&path, None) {
             Ok(rep) => {
                 let json = serde_json::to_string(&rep).unwrap_or_else(|_| "{}".to_string());
                 QString::from(json.as_str())

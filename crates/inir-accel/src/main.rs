@@ -429,9 +429,7 @@ fn cmd_guess_icon(args: &[String]) -> i32 {
 }
 
 fn cmd_prewarm(args: &[String]) -> i32 {
-    let home = env::var("HOME").unwrap_or_default();
-    let default_root = format!("{home}/inir");
-    let mut root = PathBuf::from(&default_root);
+    let mut root = prewarm::shell_dir();
     let mut vfs: Option<PathBuf> = None;
 
     let mut i = 0;
@@ -503,8 +501,10 @@ fn cmd_bench() -> i32 {
         apps_us as f64 / 1000.0
     );
 
-    let sample_wall = Path::new("/home/user/inir/assets/wallpapers/default.jpg");
+    let inir_root = prewarm::shell_dir();
+    let sample_wall = inir_root.join("assets/wallpapers/default.jpg");
     if sample_wall.exists() {
+        let sample_wall = sample_wall.as_path();
         let t_reg1 = Instant::now();
         let _ = region::compute_luma_grid(sample_wall, 24, 1920, 1080, "fill");
         let reg_cold_us = t_reg1.elapsed().as_micros();
@@ -520,10 +520,9 @@ fn cmd_bench() -> i32 {
         );
     }
 
-    let inir_root = Path::new("/home/user/inir");
     if inir_root.exists() {
         let t4 = Instant::now();
-        if let Ok(rep) = prewarm::build_and_prewarm_vfs(inir_root, None) {
+        if let Ok(rep) = prewarm::build_and_prewarm_vfs(&inir_root, None) {
             let vfs_us = t4.elapsed().as_micros();
             println!(
                 "6. Parallel QML VFS scan ({} QML files)       : {:>6} µs ({:.2} ms)",
