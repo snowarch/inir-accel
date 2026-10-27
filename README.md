@@ -4,10 +4,12 @@ Rust stand-ins for the Python and Go helpers [iNiR](https://github.com/snowarch/
 wallpaper colours, the busy-region sampler behind desktop widgets, thumbnails, sensors, app search. Same output,
 byte for byte, a lot less waiting.
 
-It sits next to the other two Rust/Go pieces of iNiR and does not step on them:
+It sits next to the other pieces of iNiR and does not step on them:
 
 - [inir-cli](https://github.com/snowarch/inir-cli) is what you type (`inir update`, `inir doctor`, `inir hub`).
 - [qs-rs](https://github.com/snowarch/qs-rs) runs the shell itself.
+- [inir-hub](https://github.com/snowarch/inir-hub) holds the families, themes and widgets you install
+  ([inir.space/hub](https://inir.space/hub)).
 - inir-accel is what the shell runs in the background. It never edits the shell's files.
 
 ## What's inside
