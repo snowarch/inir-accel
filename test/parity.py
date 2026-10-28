@@ -368,8 +368,25 @@ def material_cases(work: Path, quick: bool) -> list:
     return cases
 
 
+def py_original(work: Path, rel: str) -> Path:
+    """A Python original: the shell's tree while it has it, else the last commit that did (inir 3.0 dropped Python)."""
+    if (SHELL / rel).exists():
+        return SHELL / rel
+    out = work / "py-src" / rel
+    if not out.exists():
+        git = lambda *a: subprocess.run(["git", "-C", str(SHELL), *a], capture_output=True, check=True).stdout
+        try:
+            git("cat-file", "-e", f"HEAD:{rel}")
+            ref = "HEAD"
+        except subprocess.CalledProcessError:
+            ref = git("rev-list", "-n1", "HEAD", "--", rel).decode().strip() + "^"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(git("show", f"{ref}:{rel}"))
+    return out
+
+
 def material_suite(work: Path, quick: bool, jobs: int):
-    script = SHELL / "scripts/colors/generate_colors_material.py"
+    script = py_original(work, "scripts/colors/generate_colors_material.py")
     shim = work / "venv/bin"
     shim.mkdir(parents=True, exist_ok=True)
     if not (shim / "python3").exists():
@@ -412,7 +429,7 @@ def material_suite(work: Path, quick: bool, jobs: int):
 
 
 def region_suite(work: Path, quick: bool, jobs: int):
-    script = SHELL / "scripts/images/least_busy_region.py"
+    script = py_original(work, "scripts/images/least_busy_region.py")
     shim = work / "venv/bin"
     shim.mkdir(parents=True, exist_ok=True)
     if not (shim / "python3").exists():

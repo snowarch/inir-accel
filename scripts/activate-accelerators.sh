@@ -17,6 +17,8 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/quickshell"
 STATE_GEN_DIR="${STATE_DIR}/user/generated"
 STATE_BIN_DIR="${STATE_GEN_DIR}/bin"
 VENV_BIN_DIR="${STATE_DIR}/.venv/bin"
+# where inir runs it from (setup and update unpack the prebuilt versions there)
+ACCEL_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/inir/accel"
 
 usage() {
     cat <<EOF
@@ -88,6 +90,9 @@ case "$cmd" in
 
         mkdir -p "${HOME}/.local/bin"
         ln -sf "$INSTALLED_BIN" "${HOME}/.local/bin/inir-accel"
+        mkdir -p "$ACCEL_HOME"
+        ln -sfn "$SHIM_DIR" "$ACCEL_HOME/dev"
+        ln -sfn dev "$ACCEL_HOME/current"
 
         # 2. Hook into iNiR's native state bin cache ($STATE_BIN_DIR/inir-*)
         for gobin in "${PARITY_GO[@]}"; do
@@ -107,7 +112,7 @@ case "$cmd" in
         fi
 
         echo "[inir-rust-plugin] Live Rust accelerators installed:"
-        echo "  - Resident bin : ${INSTALLED_BIN} (linked at ~/.local/bin/inir-accel)"
+        echo "  - Resident bin : ${INSTALLED_BIN} (linked at ~/.local/bin/inir-accel and ${ACCEL_HOME}/current)"
         echo "  - Go hooks     : ${PARITY_GO[*]} -> ${INSTALLED_BIN} (the rest stay original)"
         echo "  - Venv python3 : ${VENV_BIN_DIR}/python3 -> ${INSTALLED_BIN} (Material and region; the rest go to python3.real)"
         ;;
@@ -120,6 +125,8 @@ case "$cmd" in
             ln -sf "$REAL_PY" "${VENV_BIN_DIR}/python3"
             rm -f "${VENV_BIN_DIR}/python3.real"
         fi
+        [[ "$(readlink "$ACCEL_HOME/current")" == dev ]] && rm -f "$ACCEL_HOME/current"
+        rm -f "$ACCEL_HOME/dev"
         echo "[inir-rust-plugin] Uninstalled shims and restored original venv python3 and Go binaries."
         ;;
     env)
