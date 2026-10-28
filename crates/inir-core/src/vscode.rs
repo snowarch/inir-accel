@@ -135,7 +135,7 @@ fn hex_to_hsl(hex: &str) -> Hsl {
 }
 
 /// `math.Max`/`math.Min` (the inputs are never NaN; ±0 ordered like Go).
-fn go_max(a: f64, b: f64) -> f64 {
+pub(crate) fn go_max(a: f64, b: f64) -> f64 {
     if a == 0.0 && b == 0.0 {
         return if a.is_sign_negative() { b } else { a };
     }
@@ -146,7 +146,7 @@ fn go_max(a: f64, b: f64) -> f64 {
     }
 }
 
-fn go_min(a: f64, b: f64) -> f64 {
+pub(crate) fn go_min(a: f64, b: f64) -> f64 {
     if a == 0.0 && b == 0.0 {
         return if a.is_sign_negative() { a } else { b };
     }
@@ -292,7 +292,7 @@ fn pick(m: &Colors, key: &str, fallback: &str) -> String {
 // ── Go's os, as the original calls it ───────────────────────────────────
 
 /// A Go `*PathError` text: `op path: errno text`.
-fn path_err(op: &str, path: &str, e: &std::io::Error) -> String {
+pub(crate) fn path_err(op: &str, path: &str, e: &std::io::Error) -> String {
     format!("{op} {path}: {}", go_err(e))
 }
 
@@ -305,7 +305,7 @@ fn exists(path: &str) -> bool {
 }
 
 /// `os.MkdirAll(path, 0o755)`.
-fn mkdir_all(path: &str) -> Result<(), String> {
+pub(crate) fn mkdir_all(path: &str) -> Result<(), String> {
     match fs::metadata(path) {
         Ok(m) if m.is_dir() => return Ok(()),
         Ok(_) => return Err(format!("mkdir {path}: not a directory")),
@@ -333,7 +333,7 @@ fn mkdir_all(path: &str) -> Result<(), String> {
 }
 
 /// `os.WriteFile(path, data, 0o644)`.
-fn write_file(path: &str, data: &[u8]) -> Result<(), String> {
+pub(crate) fn write_file(path: &str, data: &[u8]) -> Result<(), String> {
     let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o644).open(path).map_err(|e| path_err("open", path, &e))?;
     f.write_all(data).map_err(|e| path_err("write", path, &e))
 }
@@ -344,7 +344,7 @@ fn rename(from: &str, to: &str) -> Result<(), String> {
 }
 
 /// `os.ReadFile`: `Err((text, is_not_exist))`.
-fn read_file(path: &str) -> Result<Vec<u8>, (String, bool)> {
+pub(crate) fn read_file(path: &str) -> Result<Vec<u8>, (String, bool)> {
     let mut f = fs::File::open(path).map_err(|e| (path_err("open", path, &e), e.kind() == std::io::ErrorKind::NotFound))?;
     let mut out = Vec::new();
     std::io::Read::read_to_end(&mut f, &mut out).map_err(|e| (path_err("read", path, &e), false))?;
@@ -359,7 +359,7 @@ fn panic_nil_map() -> ! {
 }
 
 /// `common.ReadStringMapJSON`: the string values of a JSON object.
-fn read_string_map_json(path: &str) -> Result<Colors, String> {
+pub(crate) fn read_string_map_json(path: &str) -> Result<Colors, String> {
     let data = read_file(path).map_err(|e| e.0)?;
     let (raw, err) = gojsonv::unmarshal_map(&data);
     if let Some(e) = err {
@@ -378,18 +378,18 @@ fn read_string_map_json(path: &str) -> Result<Colors, String> {
 
 const LEGACY_EXTENSION_DIRS: &[&str] = &["inir.inir-theme-1.0.0"];
 
-fn home() -> String {
+pub(crate) fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
 /// `filepath.Join`: the parts joined by `/`, cleaned.
-fn join(parts: &[&str]) -> String {
+pub(crate) fn join(parts: &[&str]) -> String {
     let joined = parts.iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join("/");
     clean(&joined)
 }
 
 /// `filepath.Clean`.
-fn clean(p: &str) -> String {
+pub(crate) fn clean(p: &str) -> String {
     if p.is_empty() {
         return ".".into();
     }
@@ -416,7 +416,7 @@ fn clean(p: &str) -> String {
     }
 }
 
-fn dir_of(p: &str) -> String {
+pub(crate) fn dir_of(p: &str) -> String {
     match p.rfind('/') {
         Some(0) => "/".into(),
         Some(i) => clean(&p[..i]),

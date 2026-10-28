@@ -78,7 +78,6 @@ fn int_from_lab(lab: Lab) -> u32 {
 
 /// glibc's `random_r` TYPE_3 generator behind `srand`/`rand`.
 struct GlibcRand {
-    r: [i32; 34],
     k: usize,
     ring: Vec<i32>,
 }
@@ -100,7 +99,7 @@ impl GlibcRand {
         for i in 31..34 {
             r[i] = r[i - 31];
         }
-        let mut g = GlibcRand { r, k: 34, ring: r.to_vec() };
+        let mut g = GlibcRand { k: 34, ring: r.to_vec() };
         for _ in 0..310 {
             g.next_raw();
         }

@@ -1,6 +1,6 @@
 # Warm neutrals (opt-in)
 
-`inir-accel washi` gives the same bytes as the shell's Go solver (`scripts/colors/washi`, Version 30); `test/parity.py`
+`inir-accel washi` gives the same bytes as the Go solver inir had until 3.0 (`scripts/colors/washi`, Version 32); `test/parity.py`
 holds the two together. The warm stone/sand look an earlier version baked into every palette is now a separate,
 visible option, off by default.
 

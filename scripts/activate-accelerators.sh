@@ -34,9 +34,9 @@ EOF
 
 cmd="${1:-status}"
 
-# Only what test/parity.py proved byte for byte the same as the original takes over a live hook. The other Go
-# helpers keep (or get back) their original binary; the shell rebuilds a missing one on demand.
-PARITY_GO=(inir-washi inir-opencode-themegen inir-vscode-themegen)
+# Only what test/parity.py proved byte for byte the same as the original takes over a live hook; inir-system24-themegen
+# never had a source in the shell, so it only gets its original back.
+PARITY_GO=(inir-washi inir-opencode-themegen inir-vscode-themegen inir-zed-themegen)
 ALL_GO=(inir-washi inir-vscode-themegen inir-zed-themegen inir-opencode-themegen inir-system24-themegen)
 
 restore_go() {

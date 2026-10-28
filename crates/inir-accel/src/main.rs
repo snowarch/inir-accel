@@ -8,9 +8,8 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, vscode, washi};
+use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, vscode, washi, zed};
 use std::env;
-use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -33,7 +32,7 @@ fn main() {
     match argv0.as_str() {
         "inir-washi" => std::process::exit(cmd_washi(&args[1..])),
         "inir-vscode-themegen" => std::process::exit(vscode::run_cli(&args[0], &args[1..])),
-        "inir-zed-themegen" => std::process::exit(cmd_zed_themegen(&args[1..])),
+        "inir-zed-themegen" => std::process::exit(zed::run_cli(&args[0], &args[1..])),
         "inir-opencode-themegen" => std::process::exit(cmd_opencode_themegen(&args[1..])),
         "inir-system24-themegen" | "system24_palette.py" => {
             std::process::exit(cmd_system24_themegen(&args[1..]))
@@ -87,7 +86,7 @@ fn main() {
         "thumbgen" | "thumbnails" => cmd_thumbgen(rest),
         "terminals" | "generate-terminal-configs" => cmd_terminals(rest),
         "vscode-themegen" => vscode::run_cli(&args[0], rest),
-        "zed-themegen" => cmd_zed_themegen(rest),
+        "zed-themegen" => zed::run_cli(&args[0], rest),
         "opencode-themegen" => cmd_opencode_themegen(rest),
         "system24-themegen" => cmd_system24_themegen(rest),
         "claude-code-theme" => cmd_claude_code_theme(rest),
@@ -215,7 +214,7 @@ Usage:
   inir-accel thumbgen -d <dir> [-s normal|large|x-large|xx-large] [-w <workers>] [-i] [-r] [--machine_progress]
   inir-accel terminals [--scss <file>] [--colors <file>] [--terminal-json <file>] [--terminals ...]
   inir-accel vscode-themegen [--colors <file>] [--terminal-json <file>] [--scss <file>] [--list-forks] [--strip]
-  inir-accel zed-themegen [--scss <file>] [--colors <file>] [--terminal-json <file>] [--output <file>]
+  inir-accel zed-themegen [--scss <file>] [--colors <file>] [--terminal-json <file>] [--output <file>] [--template <file>]
   inir-accel opencode-themegen [scss] [palette] [terminal] [out-dir]
   inir-accel system24-themegen
   inir-accel claude-code-theme --terminal <file> --palette <file> --mode dark|light --out-dir <dir>
@@ -268,16 +267,6 @@ fn cmd_dev_hot_reload(args: &[String]) -> i32 {
 
 fn cmd_terminals(args: &[String]) -> i32 {
     match themegens::run_generate_terminal_configs_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
-}
-
-fn cmd_zed_themegen(args: &[String]) -> i32 {
-    match themegens::run_zed_themegen_cli(args) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("{e}");

@@ -18,6 +18,7 @@ pub mod themegens;
 pub mod thumbgen;
 pub mod vscode;
 pub mod washi;
+pub mod zed;
 
 #[cfg(test)]
 mod tests {

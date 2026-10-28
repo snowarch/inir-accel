@@ -2,7 +2,7 @@
 //! Replaces the JS-heavy `AppSearch.qml`, `scan-plugins.py`, `scan-widgets.sh`, and `icon-theme-for-mode.sh`.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [opencode] [vscode] [--quick] [--keep] [-j N]
+    test/parity.py [washi] [material] [region] [opencode] [vscode] [zed] [--quick] [--keep] [-j N]
 
-Every case runs twice, once through the original (washi built from the shell's Go sources, Material and region
-through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
+Every case runs twice, once through the original (washi and the themegens built from the Go the shell had, its
+tree while it has it, else the last commit that did; Material and region through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
 the venv's python3 shim). Each run gets its own HOME and XDG dirs, so nothing touches the real session. A case passes
 only when stdout, stderr, the exit code and every file the run leaves behind are byte for byte the same. The shim's
 fallback to real Python points at a stub that fails, so a port that gives up shows as a failure instead of a pass.
@@ -123,6 +123,25 @@ def compare(orig: Run, port: Run, what=("rc", "stdout", "stderr", "files")) -> l
 # ---------------------------------------------------------------- washi
 
 
+def go_sources(work: Path) -> Path:
+    """The Go originals: the shell's tree while it has them, else the last commit with them (inir 3.0 dropped Go)."""
+    if (SHELL / "go.mod").exists():
+        return SHELL
+    src = work / "go-src"
+    if not src.exists():
+        git = lambda *a: subprocess.run(["git", "-C", str(SHELL), *a], capture_output=True, check=True).stdout
+        try:
+            git("cat-file", "-e", "HEAD:go.mod")
+            ref = "HEAD"
+        except subprocess.CalledProcessError:
+            ref = git("rev-list", "-n1", "HEAD", "--", "go.mod").decode().strip() + "^"
+        tar = git("archive", ref, "go.mod", "scripts/colors/washi", "scripts/colors/themegencommon", "scripts/colors/opencode_themegen",
+                  "scripts/colors/vscode_themegen", "scripts/colors/zed_themegen")
+        src.mkdir()
+        subprocess.run(["tar", "-x", "-C", str(src)], input=tar, check=True)
+    return src
+
+
 def washi_requests(quick: bool) -> list:
     rng = random.Random(int(os.environ.get("PARITY_SEED", "30")))
     hexes = lambda: "#%06x" % rng.randrange(1 << 24)
@@ -185,7 +204,7 @@ def build_go_washi(work: Path) -> Path:
     cache = TARGET / "parity-gocache"
     cache.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, GOCACHE=str(cache), GOFLAGS="-mod=mod", GOTOOLCHAIN="local")
-    subprocess.run(["go", "build", "-trimpath", "-o", str(exe), "./scripts/colors/washi"], cwd=SHELL, env=env, check=True)
+    subprocess.run(["go", "build", "-trimpath", "-o", str(exe), "./scripts/colors/washi"], cwd=go_sources(work), env=env, check=True)
     return exe
 
 
@@ -454,7 +473,7 @@ def build_go(work: Path, pkg: str) -> Path:
         cache = TARGET / "parity-gocache"
         cache.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, GOCACHE=str(cache), GOFLAGS="-mod=mod", GOTOOLCHAIN="local")
-        subprocess.run(["go", "build", "-trimpath", "-o", str(exe), f"./scripts/colors/{pkg}"], cwd=SHELL, env=env, check=True)
+        subprocess.run(["go", "build", "-trimpath", "-o", str(exe), f"./scripts/colors/{pkg}"], cwd=go_sources(work), env=env, check=True)
     return exe
 
 
@@ -643,6 +662,69 @@ def vscode_suite(work: Path, quick: bool, jobs: int):
 # ---------------------------------------------------------------- main
 
 
+# ---------------------------------------------------------------- zed
+
+
+ZED_ODD = ["{{colors.nonexistent_thing.dark.hex}}", "{{colors.on_weird.light.hex}}", "{{colors.x_container.dark.hex}}",
+           "{{colors.surfacey.dark.hex}}", "{{{colors.primary.dark.hex}}}", "{{colors..dark.hex}}", "{{colors.Primary.dark.hex}}",
+           "{{colors.primary.dark.hex}", "a<b>&c \u2028 \u00e9", "{{colors.primary.light.hex}}{{colors.error.dark.hex}}x"]
+
+
+def zed_template(rng: random.Random, base: Path) -> str:
+    """The shell's Zed template, none, or one bent out of shape: odd placeholders and values, themes that don't fit."""
+    real = SHELL / "dots/.config/matugen/templates/zed-colors.json"
+    r = rng.random()
+    if r < 0.4:
+        return str(real)
+    if r < 0.5:
+        return ""
+    tpl = json.loads(real.read_text())
+    for theme in tpl["themes"]:
+        for i in range(rng.randrange(0, 6)):
+            theme["style"][f"odd.{i}"] = rng.choice(ZED_ODD + [700, 1e-7, 1e21, -1.5, True, None, {"a": [1, ZED_ODD[0], None]}])
+    tpl["themes"] += rng.sample([{"appearance": "dark", "style": {"only": "{{colors.primary.dark.hex}}"}},
+                                 {"appearance": "sepia", "style": {}}, {"appearance": "light", "style": "x"}, 5], rng.randrange(0, 3))
+    path = base / "zed-template.json"
+    path.write_text(json.dumps(tpl) if rng.random() < 0.9 else rng.choice(["[]", "null", '{"themes": 5}', '{"themes": [']))
+    return str(path)
+
+
+def zed_suite(work: Path, quick: bool, jobs: int):
+    go = build_go(work, "zed_themegen")
+    bindir = work / "accel-bin"
+    bindir.mkdir(exist_ok=True)
+    link = bindir / "inir-zed-themegen"
+    if not link.exists():
+        link.symlink_to(ACCEL)
+    flags = [["-h"], ["-x"], ["--output"], ["-bogus=1"], ["--output", "/proc/self/nope/x.json"], ["--", "x"]]
+    cases = list(range(40 if quick else 400)) + [f"flags{i}" for i in range(len(flags))] + ["positional", "defaults"]
+
+    def one(i):
+        res = []
+        for side, exe in (("orig", go), ("port", link)):
+            base = work / "zed" / str(i) / side
+            base.mkdir(parents=True, exist_ok=True)
+            gen = base / "home/.local/state/quickshell/user/generated"
+            rng = random.Random(f"zed{i}")
+            theme_inputs(rng, base)
+            inputs = [str(gen / f) for f in ("material_colors.scss", "palette.json", "terminal.json")]
+            argv = [str(exe)]
+            if isinstance(i, int):
+                argv += ["--scss", inputs[0], "--colors", inputs[1], "--terminal-json", inputs[2], "--template", zed_template(rng, base),
+                         "--output", str(base / "out/zed.json")]
+            elif i.startswith("flags"):
+                argv += flags[int(i[5:])]
+            elif i == "positional":
+                argv += ["--output", str(base / "out/zed.json")] + inputs
+            r = run(argv, base)
+            r.stdout, r.stderr = (x.replace(str(exe).encode(), b"EXE").replace(str(base).encode(), b"BASE") for x in (r.stdout, r.stderr))
+            res.append(r)
+        shutil.rmtree(work / "zed" / str(i), ignore_errors=True)
+        return i, "", compare(*res)
+
+    return list(pmap(one, cases, jobs))
+
+
 def pmap(fn, items, jobs):
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
         yield from ex.map(fn, items)
@@ -652,7 +734,7 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    every = ("washi", "material", "region", "opencode", "vscode")
+    every = ("washi", "material", "region", "opencode", "vscode", "zed")
     suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
@@ -662,7 +744,7 @@ def main():
     failed = 0
     try:
         for name in suites:
-            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite}[name](work, quick, jobs)
+            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]
             print(f"\n== {name}: {len(results) - len(bad)} of {len(results)} cases identical"

@@ -8,11 +8,6 @@ use std::sync::OnceLock;
 
 const SRGB_TO_XYZ: [[f64; 3]; 3] =
     [[0.41233895, 0.35762064, 0.18051042], [0.2126, 0.7152, 0.0722], [0.01932141, 0.11916382, 0.95034478]];
-const XYZ_TO_SRGB: [[f64; 3]; 3] = [
-    [3.2413774792388685, -1.5376652402851851, -0.49885366846268053],
-    [-0.9691452513005321, 1.8758853451067872, 0.04156585616912061],
-    [0.05562093689691305, -0.20395524564742123, 1.0571799111220335],
-];
 const WHITE_POINT_D65: [f64; 3] = [95.047, 100.0, 108.883];
 
 pub fn argb_from_rgb(r: i64, g: i64, b: i64) -> u32 {
@@ -110,14 +105,6 @@ fn lab_invf(ft: f64) -> f64 {
     if ft3 > e { ft3 } else { (116.0 * ft - 16.0) / kappa }
 }
 
-pub fn argb_from_xyz(x: f64, y: f64, z: f64) -> u32 {
-    let m = &XYZ_TO_SRGB;
-    let lr = m[0][0] * x + m[0][1] * y + m[0][2] * z;
-    let lg = m[1][0] * x + m[1][1] * y + m[1][2] * z;
-    let lb = m[2][0] * x + m[2][1] * y + m[2][2] * z;
-    argb_from_rgb(delinearized(lr), delinearized(lg), delinearized(lb))
-}
-
 pub fn argb_from_linrgb(l: [f64; 3]) -> u32 {
     argb_from_rgb(delinearized(l[0]), delinearized(l[1]), delinearized(l[2]))
 }
@@ -165,7 +152,6 @@ pub struct ViewingConditions {
     pub nc: f64,
     pub rgb_d: [f64; 3],
     pub fl: f64,
-    pub f_l_root: f64,
     pub z: f64,
 }
 
@@ -199,7 +185,7 @@ pub fn vc() -> &'static ViewingConditions {
         let f2 = (fl * rgb_d[2] * b_w / 100.0).powf(0.42);
         let rgb_a = [400.0 * f0 / (f0 + 27.13), 400.0 * f1 / (f1 + 27.13), 400.0 * f2 / (f2 + 27.13)];
         let aw = (2.0 * rgb_a[0] + rgb_a[1] + 0.05 * rgb_a[2]) * nbb;
-        ViewingConditions { n, aw, nbb, ncb, c, nc, rgb_d, fl, f_l_root: fl.powf(0.25), z }
+        ViewingConditions { n, aw, nbb, ncb, c, nc, rgb_d, fl, z }
     })
 }
 

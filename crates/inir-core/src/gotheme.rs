@@ -1,4 +1,4 @@
-//! `scripts/colors/themegencommon` from the shell's Go, line for line, plus the slice of `encoding/json` the
+//! `scripts/colors/themegencommon` from the Go inir had until 3.0, line for line, plus the slice of `encoding/json` the
 //! themegens print through: `MarshalIndent` of maps (keys sorted), slices and Go's HTML-safe strings.
 //! This code was written by: Hikari.
 use crate::gojson;

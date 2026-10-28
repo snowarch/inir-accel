@@ -1,4 +1,4 @@
-//! iRiS's palette solver, ported line for line from the shell's Go (`scripts/colors/washi`, Version 30): the same
+//! iRiS's palette solver, ported line for line from the Go inir had until 3.0 (`scripts/colors/washi`, Version 32): the same
 //! request gives the same bytes (test/parity.py holds the two together). Every role of every scheme (dark, ink, light)
 //! comes from what the person chose and the seeds the wallpaper and the colour theme give.
 //!
@@ -678,7 +678,6 @@ struct Languages {
     iris: Language,
     airisu: Language,
     material: Vec<Language>,
-    white: RGB,
 }
 
 fn langs() -> &'static Languages {
@@ -688,7 +687,6 @@ fn langs() -> &'static Languages {
         iris: iris_language(),
         airisu: airisu_language(),
         material: (0..VARIANTS.len()).map(material_language).collect(),
-        white: LCH { l: 0.975, c: 0.011, h: 88.0 }.rgb(),
     })
 }
 
@@ -1068,7 +1066,6 @@ struct Solver<'a> {
     ramp: Ramp,
     grounds: Vec<RGB>,
     colour: f64,
-    widgets: f64,
     opts: Options,
 }
 
@@ -1415,7 +1412,7 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
         material = "black";
     }
     let ramp = lang.ramp(s, paper_of(lang, s, material, req));
-    let mut v = Solver { lang, s, req, ramp, grounds: ramp.all(), colour, widgets, opts };
+    let mut v = Solver { lang, s, req, ramp, grounds: ramp.all(), colour, opts };
     let mut p = Palette { dark: s.dark, material: material.to_string(), ..Palette::default() };
     p.surface = v.grounds[0].hex();
     p.surface_high = v.grounds[1].hex();

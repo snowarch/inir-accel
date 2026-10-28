@@ -183,18 +183,6 @@ impl Json {
             _ => None,
         }
     }
-    /// `str(value)`, enough to tell whether it is a `#rrggbb`.
-    pub fn py_str(&self) -> String {
-        match self {
-            Json::Null => "None".into(),
-            Json::Bool(b) => if *b { "True".into() } else { "False".into() },
-            Json::Int(i) => i.to_string(),
-            Json::Float(f) => float_repr(*f),
-            Json::Str(s) => s.clone(),
-            Json::Arr(_) => "[...]".into(),
-            Json::Obj(_) => "{...}".into(),
-        }
-    }
     /// Python truthiness.
     pub fn truthy(&self) -> bool {
         match self {
