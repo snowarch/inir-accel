@@ -2,8 +2,8 @@
 //! `Image.open` (format by content), `convert("RGB")` for L and P, `resize(BICUBIC)` (Resample.c, premultiplied for
 //! RGBA as Image.resize does) and `_auto_detect_scheme`'s statistics with numpy's pairwise sums.
 //!
-//! What Pillow reads differently from the decoders here is not guessed: `Load::Delegate` hands the call to the
-//! original (GIF, CMYK JPEG, animated WebP, 1-bit or 16-bit grey, grey with alpha, anything else).
+//! What those exact paths leave (GIF, CMYK JPEG, animated WebP, 1-bit or 16-bit grey, grey with alpha, BMP, TIFF,
+//! a JPEG without the system's libturbojpeg) goes through the `image` crate, close to Pillow but not its bytes.
 
 use std::ffi::{c_int, c_ulong, c_void};
 use std::sync::OnceLock;
@@ -25,7 +25,8 @@ pub enum Load {
     Ok(Image),
     /// `open()` itself failed (missing file, a directory, no permission): Python's traceback, exit 1.
     Io(std::io::Error),
-    Delegate,
+    /// No decoder here takes it: Pillow's UnidentifiedImageError.
+    Unidentified,
 }
 
 pub fn open(path: &str) -> Load {
@@ -42,10 +43,31 @@ pub fn open(path: &str) -> Load {
     } else {
         None
     };
-    match image {
+    match image.or_else(|| any(&bytes)) {
         Some(im) => Load::Ok(im),
-        None => Load::Delegate,
+        None => Load::Unidentified,
     }
+}
+
+/// The `image` crate's reading, as the script's convert leaves it: RGB, or RGBA when the file has alpha. A GIF gives
+/// its second frame like the original's seek(1), or its only one (where the original crashed).
+fn any(bytes: &[u8]) -> Option<Image> {
+    let gif = bytes.starts_with(b"GIF8");
+    let dynimg = if gif {
+        use image::AnimationDecoder;
+        let decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes)).ok()?;
+        let mut frames: Vec<_> = decoder.into_frames().take(2).map_while(|f| f.ok()).collect();
+        image::DynamicImage::ImageRgba8(frames.pop()?.into_buffer())
+    } else {
+        image::load_from_memory(bytes).ok()?
+    };
+    let (w, h) = (dynimg.width() as usize, dynimg.height() as usize);
+    if w == 0 || h == 0 || w * h > MAX_IMAGE_PIXELS {
+        return None;
+    }
+    // Pillow's GIF frame is a palette, and convert("RGB") ignores its transparency.
+    let (channels, data) = if dynimg.color().has_alpha() && !gif { (4, dynimg.into_rgba8().into_raw()) } else { (3, dynimg.into_rgb8().into_raw()) };
+    Some(Image { width: w, height: h, channels, data, warns_palette_transparency: false })
 }
 
 /// Bit depth, colour type and tRNS presence, read from the chunks (the `image` crate expands them before we see it).

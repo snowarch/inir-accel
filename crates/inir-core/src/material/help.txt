@@ -1,0 +1,87 @@
+usage: generate_colors_material.py [-h] [--path PATH] [--size SIZE]
+                                   [--color COLOR] [--mode {dark,light}]
+                                   [--scheme SCHEME] [--smart]
+                                   [--transparency {opaque,transparent}]
+                                   [--termscheme TERMSCHEME]
+                                   [--harmony HARMONY]
+                                   [--harmonize_threshold HARMONIZE_THRESHOLD]
+                                   [--term_fg_boost TERM_FG_BOOST]
+                                   [--term_saturation TERM_SATURATION]
+                                   [--term_brightness TERM_BRIGHTNESS]
+                                   [--term_bg_brightness TERM_BG_BRIGHTNESS]
+                                   [--blend_bg_fg] [--cache CACHE] [--soften]
+                                   [--debug] [--json-output JSON_OUTPUT]
+                                   [--palette-output PALETTE_OUTPUT]
+                                   [--app-palette-output APP_PALETTE_OUTPUT]
+                                   [--terminal-output TERMINAL_OUTPUT]
+                                   [--meta-output META_OUTPUT]
+                                   [--scss-output SCSS_OUTPUT]
+                                   [--surface-seed SURFACE_SEED]
+                                   [--accent-seed ACCENT_SEED]
+                                   [--washi-roles WASHI_ROLES]
+                                   [--render-templates RENDER_TEMPLATES]
+                                   [--color-strength COLOR_STRENGTH]
+                                   [--invert-hue]
+
+Color generation script
+
+options:
+  -h, --help            show this help message and exit
+  --path PATH           generate colorscheme from image
+  --size SIZE           bitmap image size
+  --color COLOR         generate colorscheme from color
+  --mode {dark,light}   dark or light mode
+  --scheme SCHEME       material scheme to use
+  --smart               decide scheme type based on image color
+  --transparency {opaque,transparent}
+                        enable transparency
+  --termscheme TERMSCHEME
+                        JSON file containg the terminal scheme for generating
+                        term colors
+  --harmony HARMONY     (0-1) Color hue shift towards accent
+  --harmonize_threshold HARMONIZE_THRESHOLD
+                        (0-180) Max threshold angle to limit color hue shift
+  --term_fg_boost TERM_FG_BOOST
+                        Make terminal foreground more different from the
+                        background
+  --term_saturation TERM_SATURATION
+                        Terminal color saturation (0.0-1.0)
+  --term_brightness TERM_BRIGHTNESS
+                        Terminal color brightness/lightness (0.0-1.0)
+  --term_bg_brightness TERM_BG_BRIGHTNESS
+                        Terminal background brightness (0.0-1.0, 0=darkest,
+                        1=lightest)
+  --blend_bg_fg         Shift terminal background or foreground towards accent
+  --cache CACHE         file path to store the generated color
+  --soften              soften generated colors
+  --debug               enable debug output
+  --json-output JSON_OUTPUT
+                        file path to write colors.json
+  --palette-output PALETTE_OUTPUT
+                        file path to write palette.json
+  --app-palette-output APP_PALETTE_OUTPUT
+                        file path to write app-palette.json
+  --terminal-output TERMINAL_OUTPUT
+                        file path to write terminal.json
+  --meta-output META_OUTPUT
+                        file path to write theme-meta.json
+  --scss-output SCSS_OUTPUT
+                        file path to write material_colors.scss
+  --surface-seed SURFACE_SEED
+                        hex colour the neutral surfaces are anchored to (the
+                        shell's own material); accents stay from the source
+  --accent-seed ACCENT_SEED
+                        hex colour the accents are drawn from instead of the
+                        source (the shell's own accent)
+  --washi-roles WASHI_ROLES
+                        iris-surface.json whose 'roles' are iRiS's solved
+                        palette in Material role names: the apps wear them as
+                        they are
+  --render-templates RENDER_TEMPLATES
+                        directory containing templates/ and templates.json
+                        (renders GTK/fuzzel/etc.)
+  --color-strength COLOR_STRENGTH
+                        multiplier for wallpaper-derived accent chroma (1.0 =
+                        default)
+  --invert-hue          Rotate seed color hue 180° before scheme generation
+                        (complementary palette)

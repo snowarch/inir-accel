@@ -1,0 +1,52 @@
+usage: least_busy_region.py [-h] [--width WIDTH] [--height HEIGHT] [-v]
+                            [--screen-width SCREEN_WIDTH]
+                            [--screen-height SCREEN_HEIGHT] [--stride STRIDE]
+                            [--screen-mode {fill,fit,stretch,center,tile}]
+                            [--verbose] [-l] [-t VARIANCE_THRESHOLD]
+                            [--aspect-ratio ASPECT_RATIO]
+                            [--horizontal-padding HORIZONTAL_PADDING]
+                            [--vertical-padding VERTICAL_PADDING] [--busiest]
+                            [--color-only] [--position-x POSITION_X]
+                            [--position-y POSITION_Y] [--luma-grid CELL]
+                            image_path
+
+Find least busy region in an image and output a JSON. Made for determining a
+suitable position for a wallpaper widget.
+
+positional arguments:
+  image_path            Path to the input image
+
+options:
+  -h, --help            show this help message and exit
+  --width WIDTH         Region width
+  --height HEIGHT       Region height
+  -v, --visual-output   Output image with rectangle
+  --screen-width SCREEN_WIDTH
+                        Screen width for wallpaper scaling
+  --screen-height SCREEN_HEIGHT
+                        Screen height for wallpaper scaling
+  --stride STRIDE       Step size for sliding window (higher is faster, less
+                        precise)
+  --screen-mode {fill,fit,stretch,center,tile}
+                        Wallpaper scaling mode as the desktop draws it (span
+                        is fill on the whole canvas)
+  --verbose             Print verbose output
+  -l, --largest-region  Find the largest region under the variance threshold
+                        and output its center
+  -t VARIANCE_THRESHOLD, --variance-threshold VARIANCE_THRESHOLD
+                        Variance threshold for largest region mode
+  --aspect-ratio ASPECT_RATIO
+                        Aspect ratio (width/height) for largest region mode
+  --horizontal-padding HORIZONTAL_PADDING, -hp HORIZONTAL_PADDING
+                        Minimum horizontal distance from region to image edge
+  --vertical-padding VERTICAL_PADDING, -vp VERTICAL_PADDING
+                        Minimum vertical distance from region to image edge
+  --busiest             Find the busiest region instead of the least busy
+  --color-only          Skip region search; analyze color/brightness at a
+                        specific position
+  --position-x POSITION_X
+                        Widget X position for --color-only mode
+  --position-y POSITION_Y
+                        Widget Y position for --color-only mode
+  --luma-grid CELL      Print per-cell luma and colour of the whole screen in
+                        CELL-pixel cells

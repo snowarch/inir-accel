@@ -10,14 +10,11 @@ use crate::material::pixels::np_std;
 use crate::material::py::{float_repr, parse_float, parse_int};
 use std::io::Write as _;
 
-pub enum Run {
-    Exit(i32),
-    Delegate,
+pub struct Context {
+    pub site_packages: Option<String>,
 }
 
-pub struct Context {
-    pub site_packages: String,
-}
+const PROG: &str = "least_busy_region.py";
 
 const MODES: [&str; 5] = ["fill", "fit", "stretch", "center", "tile"];
 
@@ -228,7 +225,6 @@ fn raise(kind: &str, message: &str) -> Raise {
 
 enum Fail {
     Raise,
-    Delegate,
 }
 
 impl From<Raise> for Fail {
@@ -237,12 +233,23 @@ impl From<Raise> for Fail {
     }
 }
 
-pub fn run(argv: &[String], ctx: &Context) -> Run {
-    let Some(args) = parse_args(argv) else { return Run::Delegate };
-    // Shapes the original turns into numpy warnings, odd slices or an image file: theirs to answer.
+pub fn run(argv: &[String], ctx: &Context) -> i32 {
+    let help = include_str!("help.txt");
+    let Some(args) = parse_args(argv) else {
+        if argv.iter().take_while(|a| *a != "--").any(|a| a == "-h" || a == "--help") {
+            print!("{help}");
+            return 0;
+        }
+        eprint!("{}{PROG}: error: invalid arguments\n", help.split("\n\n").next().unwrap_or_default().to_string() + "\n");
+        return 2;
+    };
+    // The original drew the region into an image file, or turned these into numpy warnings and odd slices.
     let draws = args.visual_output && args.luma_grid <= 0 && !args.color_only;
-    if draws
-        || args.screen_width <= 0
+    if draws {
+        eprintln!("{PROG}: error: --visual-output without --luma-grid or --color-only drew an image; it is gone");
+        return 2;
+    }
+    if args.screen_width <= 0
         || args.screen_height <= 0
         || args.width <= 0
         || args.height <= 0
@@ -251,7 +258,8 @@ pub fn run(argv: &[String], ctx: &Context) -> Run {
         || !args.aspect_ratio.is_finite()
         || args.variance_threshold.is_nan()
     {
-        return Run::Delegate;
+        eprintln!("{PROG}: error: sizes must be positive, paddings at least 0, the aspect ratio and threshold numbers");
+        return 2;
     }
     let mut out = String::new();
     let mut loader = Loader { ctx, args: &args, cache: Vec::new() };
@@ -260,15 +268,14 @@ pub fn run(argv: &[String], ctx: &Context) -> Run {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(out.as_bytes());
             let _ = stdout.flush();
-            Run::Exit(0)
+            0
         }
         Err(Fail::Raise) => {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(out.as_bytes());
             let _ = stdout.flush();
-            Run::Exit(1)
+            1
         }
-        Err(Fail::Delegate) => Run::Delegate,
     }
 }
 
@@ -364,17 +371,16 @@ struct Loader<'a> {
 impl Loader<'_> {
     fn load(&mut self, gray: bool) -> Result<Option<Mat>, Fail> {
         let a = self.args;
-        let m = load_screen_image(&a.image_path, a.screen_width, a.screen_height, &a.screen_mode, gray, &self.ctx.site_packages)?;
+        let m = load_screen_image(&a.image_path, a.screen_width, a.screen_height, &a.screen_mode, gray, self.ctx.site_packages.as_deref())?;
         self.cache.push((gray, None));
         Ok(m)
     }
 }
 
-fn read_screen_image(path: &str, gray: bool, sw: usize, sh: usize, mode: &str, site: &str) -> Result<Option<Mat>, Fail> {
+fn read_screen_image(path: &str, gray: bool, sw: usize, sh: usize, mode: &str, site: Option<&str>) -> Result<Option<Mat>, Fail> {
     let img = match decode::imread(path, gray, site) {
         Read::Ok(m) => m,
         Read::None => return Ok(None),
-        Read::Delegate => return Err(Fail::Delegate),
     };
     Ok(Some(screen_image(&img, sw, sh, mode)))
 }
@@ -454,11 +460,11 @@ fn cache_dir() -> String {
 
 const CACHE_KEEP: usize = 8;
 
-fn load_screen_image(path: &str, sw: i64, sh: i64, mode: &str, gray: bool, site: &str) -> Result<Option<Mat>, Fail> {
+fn load_screen_image(path: &str, sw: i64, sh: i64, mode: &str, gray: bool, site: Option<&str>) -> Result<Option<Mat>, Fail> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let (swu, shu) = (sw as usize, sh as usize);
     let Ok(meta) = std::fs::metadata(path) else { return read_screen_image(path, gray, swu, shu, mode, site) };
-    let Ok(real) = std::fs::canonicalize(path) else { return Err(Fail::Delegate) };
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.into()));
     let mtime_ns = meta.mtime() as i128 * 1_000_000_000 + meta.mtime_nsec() as i128;
     let key = sha1_hex(format!("{}|{mtime_ns}|{}|{sw}x{sh}|{mode}|{}", real.to_string_lossy(), meta.size(), if gray { "gray" } else { "bgr" }).as_bytes());
     let dir = cache_dir();
@@ -476,8 +482,8 @@ fn load_screen_image(path: &str, sw: i64, sh: i64, mode: &str, gray: bool, site:
     if let Ok(bytes) = std::fs::read(&cache_path) {
         match npy_load(&bytes) {
             Npy::Ok(m) => return Ok(Some(m)),
-            Npy::Foreign => return Err(Fail::Delegate),
-            Npy::Invalid => {}
+            // an array this port doesn't write: read the image again and write over it
+            Npy::Foreign | Npy::Invalid => {}
         }
     }
     let Some(img) = read_screen_image(path, gray, swu, shu, mode, site)? else { return Ok(None) };
@@ -957,7 +963,7 @@ pub fn luma_json(g: &LumaGrid) -> String {
 }
 
 /// The screen image the shell's widgets read, for callers outside the script (the QML plugin, the bench).
-pub fn screen_image_of(path: &str, sw: usize, sh: usize, mode: &str, site: &str) -> Option<Mat> {
+pub fn screen_image_of(path: &str, sw: usize, sh: usize, mode: &str, site: Option<&str>) -> Option<Mat> {
     match decode::imread(path, false, site) {
         Read::Ok(m) => Some(screen_image(&m, sw, sh, mode)),
         _ => None,

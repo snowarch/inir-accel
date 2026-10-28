@@ -1,6 +1,7 @@
 //! `generate_colors_material.py`, ported byte for byte (test/parity.py material, test/material_stages.py,
-//! test/material_pixels.py). The shim answers only for the exact script and library versions it was transcribed
-//! from; anything else, and the few inputs the port leaves alone, run the original.
+//! test/material_pixels.py) and the code since inir dropped Python: what Pillow read that the decoders here don't
+//! match exactly (GIF, BMP, TIFF, CMYK, 16-bit, a JPEG without the system's libturbojpeg) goes through the `image`
+//! crate. The venv shim still answers only for the exact script it was transcribed from.
 
 mod hct;
 pub(crate) mod pixels;
@@ -10,7 +11,7 @@ mod quantize;
 mod scheme;
 mod script;
 
-/// The exit code that tells the shim to run the original script instead.
+/// The exit code that tells the shim to run the original script instead (a script it wasn't transcribed from).
 pub const DELEGATE: i32 = 125;
 
 /// Stage probe for test/parity.py while the port grows: `celebi <rgb file>` reads raw r,g,b bytes (what
@@ -42,7 +43,7 @@ pub fn probe(args: &[String]) -> i32 {
             let im = match pixels::open(path) {
                 pixels::Load::Ok(im) => im,
                 pixels::Load::Io(_) => return 3,
-                pixels::Load::Delegate => return DELEGATE,
+                pixels::Load::Unidentified => return 4,
             };
             let (nw, nh) = pixels::optimal_size(im.width, im.height, size);
             let im = if nw < im.width || nh < im.height { pixels::resize(&im, nw, nh) } else { im };
@@ -82,9 +83,6 @@ const PROBE_TONES: [f64; 16] = [0.0, 4.0, 10.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60
 /// The script the port was transcribed from: any other text is the original's to run.
 const SCRIPT_FNV: u64 = 0x1726c92a649ecda0;
 
-/// Versions the transcription matches (Pillow's resampler and warnings, numpy's sums, materialyoucolor's maths).
-const LIBRARIES: [&str; 3] = ["materialyoucolor-3.0.4.dist-info", "pillow-12.3.0.dist-info", "numpy-2.5.4.dist-info"];
-
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in bytes {
@@ -111,15 +109,11 @@ pub(crate) fn venv_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(format!("{home}/.local/state/quickshell/.venv"))
 }
 
-/// `site-packages` of the venv when it carries the exact libraries, as the original imports them.
+/// `site-packages` of a venv with Pillow, where the original's own warnings pointed (none without one).
 fn site_packages() -> Option<String> {
     let lib = venv_dir().join("lib");
-    let site = std::fs::read_dir(&lib)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path().join("site-packages"))
-        .find(|p| p.join("materialyoucolor").is_dir())?;
-    LIBRARIES.iter().all(|d| site.join(d).is_dir()).then(|| site.to_string_lossy().into_owned())
+    let site = std::fs::read_dir(&lib).ok()?.filter_map(|e| e.ok()).map(|e| e.path().join("site-packages")).find(|p| p.join("PIL").is_dir())?;
+    Some(site.to_string_lossy().into_owned())
 }
 
 /// The venv shim's entry: `script` is the path Python was asked to run.
@@ -133,11 +127,7 @@ pub fn run_script(script: &str, args: &[String]) -> i32 {
 
 /// `inir-accel material-colors ...`, the script's arguments without the script check.
 pub fn run_cli(args: &[String]) -> i32 {
-    let Some(site_packages) = site_packages() else { return DELEGATE };
-    match script::run(args, &script::Context { site_packages }) {
-        script::Run::Exit(code) => code,
-        script::Run::Delegate => DELEGATE,
-    }
+    script::run(args, &script::Context { site_packages: site_packages() })
 }
 
 /// The QML plugin's in-process entry (`InirNative.generateMaterialColors`), which nothing in the shell calls: the

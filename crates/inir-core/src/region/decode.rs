@@ -1,10 +1,11 @@
 //! `cv2.imread(path, IMREAD_COLOR | IMREAD_GRAYSCALE)` as opencv-contrib-python 5.0.0 reads the formats wallpapers
-//! come in: JPEG through libjpeg-turbo (islow, fancy upsampling, Y alone for grey), PNG through the wheel's own
-//! libpng with OpenCV's transforms (its RGB->grey honours gAMA/sRGB, so it is called, not rewritten), WebP as libwebp
-//! decodes it plus `cvtColor(BGR2GRAY)`, then the EXIF orientation from JPEG APP1 and PNG eXIf.
+//! come in: JPEG through libjpeg-turbo (islow, fancy upsampling, Y alone for grey), PNG through libpng (the wheel's
+//! while a venv has it, else the system's) with OpenCV's transforms (its RGB->grey honours gAMA/sRGB, so it is
+//! called, not rewritten), WebP as libwebp decodes it plus `cvtColor(BGR2GRAY)`, then the EXIF orientation from JPEG
+//! APP1 and PNG eXIf. What those leave (other formats, CMYK, APNG, animated WebP, odd chunk sizes, no system
+//! libturbojpeg or libpng) goes through the `image` crate, close to OpenCV but not its bytes.
 //!
-//! `Read::None` is imread's None (missing or unreadable file, a PNG libpng refuses); `Read::Delegate` is everything the
-//! port does not claim to read the same way (other formats, CMYK, APNG, animated WebP, odd chunk sizes).
+//! `Read::None` is imread's None (missing or unreadable file, a PNG libpng refuses, nothing decodes it).
 
 use super::Mat;
 use std::ffi::{c_char, c_int, c_void};
@@ -13,36 +14,51 @@ use std::sync::OnceLock;
 pub enum Read {
     Ok(Mat),
     None,
-    Delegate,
 }
 
 /// OpenCV's `validateInputImageSize` limits; past them imread raises instead of returning.
 const MAX_SIDE: usize = 1 << 20;
 const MAX_PIXELS: usize = 1 << 30;
 
-pub fn imread(path: &str, gray: bool, site_packages: &str) -> Read {
+pub fn imread(path: &str, gray: bool, site_packages: Option<&str>) -> Read {
     let Ok(bytes) = std::fs::read(path) else { return Read::None };
     let (mat, orientation) = if bytes.starts_with(b"\xFF\xD8\xFF") {
         match jpeg(&bytes, gray) {
             Some(m) => (m, jpeg_orientation(&bytes)),
-            None => return Read::Delegate,
+            None => return any(&bytes, gray),
         }
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         match png(&bytes, gray, site_packages) {
             Png::Ok(m, o) => (m, o),
             Png::Failed => return Read::None,
-            Png::Delegate => return Read::Delegate,
+            Png::Delegate => return any(&bytes, gray),
         }
     } else if bytes.len() >= 30 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         match webp(&bytes, gray) {
             Some(m) => (m, None),
-            None => return Read::Delegate,
+            None => return any(&bytes, gray),
         }
     } else {
         // Empty, a directory read as nothing, or a signature some other OpenCV decoder may claim.
-        return if bytes.is_empty() { Read::None } else { Read::Delegate };
+        return if bytes.is_empty() { Read::None } else { any(&bytes, gray) };
     };
     Read::Ok(orient(mat, orientation))
+}
+
+/// The `image` crate's reading (first frame), BGR or grey as imread hands it.
+fn any(bytes: &[u8], gray: bool) -> Read {
+    let Ok(img) = image::load_from_memory(bytes) else { return Read::None };
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    if !sane(w, h) {
+        return Read::None;
+    }
+    let rgb = img.into_rgb8().into_raw();
+    let data = if gray {
+        rgb.chunks_exact(3).map(|p| gray_of(p[2], p[1], p[0])).collect()
+    } else {
+        rgb.chunks_exact(3).flat_map(|p| [p[2], p[1], p[0]]).collect()
+    };
+    Read::Ok(Mat { w, h, cn: if gray { 1 } else { 3 }, data })
 }
 
 fn sane(w: usize, h: usize) -> bool {
@@ -275,16 +291,21 @@ struct LibPng {
     get_exif_1: unsafe extern "C-unwind" fn(PngPtr, PngPtr, *mut u32, *mut *mut u8) -> u32,
 }
 
-/// The libpng cv2 links (`opencv_contrib_python.libs/libpng16-*.so.16.58.0`): the same build, so the same warnings
-/// and the same grey.
-fn libpng(site_packages: &str) -> Option<&'static LibPng> {
+/// The libpng cv2 links (`opencv_contrib_python.libs/libpng16-*.so.16.58.0`) while a venv has it: the same build, so
+/// the same warnings and the same grey. Without it the system's libpng16, the same 1.6 API and transforms.
+fn libpng(site_packages: Option<&str>) -> Option<&'static LibPng> {
     static LIB: OnceLock<Option<LibPng>> = OnceLock::new();
     LIB.get_or_init(|| unsafe {
-        let dir = std::path::Path::new(site_packages).join("opencv_contrib_python.libs");
-        let file = std::fs::read_dir(&dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| {
-            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("libpng16-") && n.ends_with(".so.16.58.0"))
-        })?;
-        let cpath = std::ffi::CString::new(file.to_str()?).ok()?;
+        let wheel = site_packages.and_then(|site| {
+            let dir = std::path::Path::new(site).join("opencv_contrib_python.libs");
+            std::fs::read_dir(&dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| {
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("libpng16-") && n.ends_with(".so.16.58.0"))
+            })
+        });
+        let cpath = match wheel {
+            Some(file) => std::ffi::CString::new(file.to_str()?).ok()?,
+            None => c"libpng16.so.16".to_owned(),
+        };
         let handle = libc::dlopen(cpath.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
         if handle.is_null() {
             return None;
@@ -384,7 +405,7 @@ unsafe extern "C-unwind" fn png_abort(_buf: *mut c_void, _val: c_int) {
     std::panic::resume_unwind(Box::new(PngAbort));
 }
 
-fn png(bytes: &[u8], gray: bool, site_packages: &str) -> Png {
+fn png(bytes: &[u8], gray: bool, site_packages: Option<&str>) -> Png {
     if let Err(e) = png_prescan(bytes) {
         return e;
     }

@@ -1,6 +1,6 @@
 //! generate_colors_material.py itself: argparse, the colour flow and every effect in the original's order (cache,
 //! iris-seeds, SCSS file, stdout, the JSON files, templates). Python's failures stay failures: a step that raises
-//! there exits 1 here after the same effects; what the port does not cover returns `Run::Delegate` before any.
+//! there exits 1 here after the same effects.
 
 use super::hct::{difference_degrees, rotation_direction, sanitize_degrees_double, Hct};
 use super::pixels;
@@ -9,14 +9,9 @@ use super::quantize;
 use super::scheme::{self, Scheme, Variant, ROLES};
 use std::path::Path;
 
-pub enum Run {
-    Exit(i32),
-    Delegate,
-}
-
-/// Where the original's own warnings point (`<venv site-packages>/PIL/Image.py`).
+/// Where the original's own warnings point (`<venv site-packages>/PIL/Image.py`), while a venv has Pillow.
 pub struct Context {
-    pub site_packages: String,
+    pub site_packages: Option<String>,
 }
 
 const PROG: &str = "generate_colors_material.py";
@@ -191,8 +186,6 @@ enum Parsed {
     Args(Box<Args>),
     Error(String),
     Help,
-    /// An int past i64 (Python has no limit).
-    Unsupported,
 }
 
 /// What `_parse_optional` makes of one string: a positional, a known option (with an `=` value), or an unknown one.
@@ -326,7 +319,8 @@ fn parse_args(argv: &[String]) -> Parsed {
                             None if v.trim().trim_start_matches(['+', '-']).chars().all(|c| c.is_ascii_digit() || c == '_')
                                 && v.trim().chars().any(|c| c.is_ascii_digit()) =>
                             {
-                                return Parsed::Unsupported;
+                                // past i64 (Python has no limit): no size resizes it anyway
+                                args.size = if v.trim().starts_with('-') { i64::MIN } else { i64::MAX };
                             }
                             None => return Parsed::Error(format!("argument {name}: invalid int value: {}", py_repr_str(&v))),
                         }
@@ -1006,42 +1000,41 @@ fn hex_val(v: &str) -> Result<HexVal, Raise> {
 
 // ---------------------------------------------------------------- the run
 
-pub fn run(argv: &[String], ctx: &Context) -> Run {
+pub fn run(argv: &[String], ctx: &Context) -> i32 {
     let args = match parse_args(argv) {
         Parsed::Args(a) => *a,
         Parsed::Error(e) => {
             eprint!("{USAGE}{PROG}: error: {e}\n");
-            return Run::Exit(2);
+            return 2;
         }
-        Parsed::Help | Parsed::Unsupported => return Run::Delegate,
+        Parsed::Help => {
+            print!("{}", include_str!("help.txt"));
+            return 0;
+        }
     };
-    if args.debug {
-        return Run::Delegate;
-    }
-    // Templates from a legacy config.toml go through tomllib: the original's.
-    if let Some(dir) = &args.render_templates {
-        if !Path::new(&py::join(dir, "templates.json")).is_file() && Path::new(&py::join(dir, "config.toml")).is_file() {
-            return Run::Delegate;
-        }
-    }
+    // --debug's colour table was the original's alone: the run prints its usual output.
     let image = match &args.path {
         Some(p) => match pixels::open(p) {
             pixels::Load::Ok(im) => Some(im),
             pixels::Load::Io(e) => {
                 os_error(&e, p);
-                return Run::Exit(1);
+                return 1;
             }
-            pixels::Load::Delegate => return Run::Delegate,
+            pixels::Load::Unidentified => {
+                eprintln!("PIL.UnidentifiedImageError: cannot identify image file {}", py_repr_str(p));
+                return 1;
+            }
         },
         None => None,
     };
-    // Without a source the original only runs when an accent seed defines the colour (a NameError otherwise).
+    // Without a source the original only ran when an accent seed defined the colour (a NameError otherwise).
     if image.is_none() && args.color.is_none() && seed_flag(&args.accent_seed).is_none() {
-        return Run::Delegate;
+        eprintln!("{PROG}: error: no colour source: give --path, --color or --accent-seed");
+        return 1;
     }
     match flow(args, image, ctx) {
-        Ok(code) => Run::Exit(code),
-        Err(Raise) => Run::Exit(1),
+        Ok(code) => code,
+        Err(Raise) => 1,
     }
 }
 
@@ -1052,10 +1045,9 @@ fn flow(mut args: Args, image: Option<pixels::Image>, ctx: &Context) -> Result<i
     let mut hct: Option<Hct> = None;
 
     if let Some(mut im) = image {
-        if im.warns_palette_transparency {
+        if let (true, Some(site)) = (im.warns_palette_transparency, &ctx.site_packages) {
             eprint!(
-                "{}/PIL/Image.py:1136: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images\n  warnings.warn(\n",
-                ctx.site_packages
+                "{site}/PIL/Image.py:1136: UserWarning: Palette images with Transparency expressed in bytes should be converted to RGBA images\n  warnings.warn(\n"
             );
         }
         let (nw, nh) = pixels::optimal_size(im.width, im.height, args.size);
@@ -1540,8 +1532,36 @@ fn render_templates(
             let Some(Json::Str(input)) = entry.get("input") else { return Err(raise("KeyError", "'input'")) };
             entries.push((py::join(&base, input), output_path));
         }
+    } else if Path::new(&legacy).is_file() {
+        // matugen's own config, from before templates.json: its [templates.<name>] tables in file order.
+        let text = std::fs::read_to_string(&legacy).map_err(|e| os_error(&e, &legacy))?;
+        let config: toml::Table = text.parse().map_err(|e: toml::de::Error| raise("tomllib.TOMLDecodeError", e.message()))?;
+        if let Some(toml::Value::Table(templates)) = config.get("templates") {
+            for entry in templates.values() {
+                let toml::Value::Table(entry) = entry else { continue };
+                let (Some(toml::Value::String(input)), Some(toml::Value::String(output))) = (entry.get("input_path"), entry.get("output_path")) else {
+                    continue;
+                };
+                if input.is_empty() || output.is_empty() || input == "/dev/null" || output == "/dev/null" {
+                    continue;
+                }
+                let mut resolved_input = py::expanduser(input);
+                let resolved_output = py::abspath(&py::expanduser(output));
+                if managed.contains(&resolved_output) {
+                    continue;
+                }
+                if !Path::new(&resolved_input).is_file() {
+                    if let Some((_, rel)) = input.split_once("/templates/") {
+                        let candidate = py::join(&py::join(dir, "templates"), rel.trim_start_matches('/'));
+                        if Path::new(&candidate).is_file() {
+                            resolved_input = candidate;
+                        }
+                    }
+                }
+                entries.push((resolved_input, resolved_output));
+            }
+        }
     } else {
-        // (config.toml was handed to the original before any effect.)
         eprintln!("[render-templates] Missing {manifest_path} and {legacy}, skipping template rendering");
     }
     if entries.is_empty() {
