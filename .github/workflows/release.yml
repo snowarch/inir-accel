@@ -1,0 +1,33 @@
+name: release
+
+# The binary setup fetches: built on the oldest glibc people run, so it starts on all of them. PRs build it too.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo test --locked -p inir-core -p inir-accel
+      - name: package
+        run: |
+          ver=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "inir-accel") | .version')
+          if [[ $GITHUB_REF == refs/tags/* && ${GITHUB_REF_NAME#v} != "$ver" ]]; then
+            echo "tag $GITHUB_REF_NAME but Cargo.toml says $ver"; exit 1
+          fi
+          name=inir-accel-$ver-x86_64
+          cargo build --release --locked -p inir-accel
+          mkdir -p "out/$name"
+          cp target/release/inir-accel LICENSE LICENSE-GPL "out/$name/"
+          tar -C out --zstd -cf "out/$name.tar.zst" "$name"
+          (cd out && sha256sum "$name.tar.zst" > "$name.tar.zst.sha256")
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: gh release create "$GITHUB_REF_NAME" out/*.tar.zst out/*.sha256 --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
