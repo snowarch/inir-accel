@@ -3,6 +3,7 @@
 #![recursion_limit = "512"]
 
 pub mod apps;
+pub mod claude_theme;
 pub mod daemons;
 pub mod gojson;
 pub mod gojsonv;
@@ -12,9 +13,11 @@ pub mod helpers;
 pub mod material;
 pub mod opencode;
 pub mod prewarm;
+pub mod pyrt;
 pub mod region;
 pub mod sensors;
-pub mod themegens;
+pub mod system24;
+pub mod terminals;
 pub mod thumbgen;
 pub mod vscode;
 pub mod washi;
@@ -75,14 +78,6 @@ mod tests {
         assert!(helpers::is_browser_markup(raw));
         let cleaned = helpers::strip_browser_markup(&String::from_utf8_lossy(raw));
         assert_eq!(cleaned, "Hello world!\nSecond line");
-    }
-
-    #[test]
-    fn test_jsonc_strip() {
-        let jsonc = "{\n  // comment\n  \"a\": 1,\n  /* block */\n  \"b\": [2, 3,]\n}";
-        let stripped = themegens::strip_jsonc_comments(jsonc);
-        let parsed: serde_json::Value = serde_json::from_str(&stripped).unwrap();
-        assert_eq!(parsed["a"], 1);
     }
 }
 

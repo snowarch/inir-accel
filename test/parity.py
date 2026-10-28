@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [opencode] [vscode] [zed] [--quick] [--keep] [-j N]
+    test/parity.py [washi] [material] [region] [opencode] [vscode] [zed] [terminals] [claude] [system24] [cover]
+                   [--quick] [--keep] [-j N]
 
 Every case runs twice, once through the original (washi and the themegens built from the Go the shell had, its
 tree while it has it, else the last commit that did; Material and region through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
@@ -17,6 +18,7 @@ import difflib
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +59,9 @@ def isolated_env(base: Path) -> dict:
 def tree(base: Path) -> dict:
     out = {}
     for p in sorted(base.rglob("*")):
-        if p.is_file() and not p.is_symlink():
+        if p.is_symlink():
+            out[str(p.relative_to(base))] = b"-> " + os.readlink(p).encode()
+        elif p.is_file():
             out[str(p.relative_to(base))] = p.read_bytes()
     return out
 
@@ -676,6 +680,177 @@ def vscode_suite(work: Path, quick: bool, jobs: int):
     return list(pmap(one, cases, jobs))
 
 
+# ---------------------------------------------------------------- python helpers
+
+
+def stub_bin(work: Path) -> str:
+    """A PATH whose pkill does nothing: the originals signal running apps (kitty), the tests must not."""
+    d = work / "stub-bin"
+    if not (d / "pkill").exists():
+        d.mkdir(exist_ok=True)
+        (d / "pkill").write_text("#!/bin/sh\nexit 1\n")
+        (d / "pkill").chmod(0o755)
+    return f"{d}:{os.environ.get('PATH', '/usr/bin')}"
+
+
+def exception_line(err: bytes) -> bytes:
+    """What a traceback says happened: its last line's exception type (the frames above it are Python's own)."""
+    last = [l for l in err.splitlines() if l.strip()][-1:] or [b""]
+    return b"raised " + last[0].split(b":", 1)[0]
+
+
+def pair(name, work, cases, py, port, setup=None, extra_env=None, what=("rc", "stdout", "stderr", "files"), jobs=4, norm=None):
+    """Each case through the Python original (py) and inir-accel (port), argv built per side from (case, base).
+    A run the original ends with a traceback compares the exception's type, not the interpreter's frames."""
+    def one(case):
+        res = []
+        for side, argv in (("orig", py), ("port", port)):
+            base = work / name / str(case) / side
+            base.mkdir(parents=True, exist_ok=True)
+            env = {"PATH": stub_bin(work)}
+            env.update(extra_env(case, base) if extra_env else {})
+            r = run(argv(case, base), base, setup=(lambda b: setup(case, b)) if setup else None, extra_env=env)
+            r.stdout, r.stderr = (x.replace(str(base).encode(), b"BASE") for x in (r.stdout, r.stderr))
+            if norm:
+                r.stdout, r.stderr = norm(r.stdout), norm(r.stderr)
+                r.files = {norm(k.encode()).decode(): norm(v) for k, v in r.files.items()}
+            res.append(r)
+        if res[0].stderr.startswith(b"Traceback"):
+            res[0].stderr, res[1].stderr = exception_line(res[0].stderr), exception_line(res[1].stderr)
+        shutil.rmtree(work / name / str(case), ignore_errors=True)
+        return case, "", compare(*res, what=what)
+    return list(pmap(one, cases, jobs))
+
+
+TERMINALS = ["kitty", "alacritty", "foot", "wezterm", "ghostty", "konsole", "starship", "omp", "btop", "lazygit", "yazi", "fuzzel"]
+
+
+def gen_dir(base: Path) -> Path:
+    return base / "home/.local/state/quickshell/user/generated"
+
+
+def terminals_suite(work: Path, quick: bool, jobs: int):
+    script = py_original(work, "scripts/colors/generate_terminal_configs.py")
+    for sibling in ("zed", "vscode"):  # it imports them at the top
+        py_original(work, f"scripts/colors/{sibling}/theme_generator.py")
+    n = 30 if quick else 300
+
+    def pick(case):
+        rng = random.Random(f"term-pick{case}")
+        if case % 7 == 0:
+            return []
+        if case % 7 == 1:
+            return ["--terminals", "all"]
+        return ["--terminals", *rng.sample(TERMINALS, rng.randrange(1, len(TERMINALS) + 1))]
+
+    def argv(case, base):
+        g = gen_dir(base)
+        return ["--scss", str(g / "material_colors.scss"), "--colors", str(g / "palette.json"),
+                "--terminal-json", str(g / "terminal.json"), *pick(case)]
+
+    def setup(case, base):
+        theme_inputs(random.Random(f"term{case}"), base)
+        # some configs already there: the generators edit or keep what the person has
+        rng = random.Random(f"term-pre{case}")
+        cfg = base / "home/.config"
+        variants = {
+            "kitty/kitty.conf": ["include current-theme.conf\n", "font_size 11", "include   current-theme.conf\r\nx\r\n"],
+            "foot/foot.ini": ["[main]\nfont=x\n", "include=~/.config/foot/colors.ini\n\n[main]\n",
+                              "include = /x/inir-colors.ini  \n\ninclude=~/a/colors.ini\n[x]"],
+            "alacritty/alacritty.toml": [
+                "[general]\nimport = []\n", '[general]\nimport = ["~/.config/alacritty/colors.toml"]\n',
+                "live_config_reload = true\n[colors.primary]\nbackground = '#000000'\n\n[colors.normal]\nred = '#ff0000'\n[window]\nopacity = 0.9\n",
+                '# iNiR wallpaper theming\nimport = ["~/.config/alacritty/colors.toml"]\n[general]\nworking_directory = "/tmp"\n\n'
+                "[[keyboard.bindings]]\nipc_socket = false\nkey = 'N'\n",
+                '[general]\r\nimport = ["~/.config/alacritty/colors.toml"]\r\n[colors.bright]\r\nred = \'x\'\r\n'],
+            "starship.toml": ["format = '$all'\n", 'palette = "ii"\n\n[palettes.ii]\nprimary = \'#000\'\n[git]\nx=1\n',
+                              'palette = "other"\n[palettes.ii]\nred = 1\n[palettes.ii]\nblue = 2', "[palettes.other]\n"],
+            "btop/btop.conf": ['color_theme = "Default"\n', 'color_theme = "ii-auto"\n', "theme_background = False",
+                               'color_theme\n= "x"\ncolor_theme = "y"\n'],
+            "lazygit/config.yml": ["gui:\n  theme: {}\n", "gui:\n    theme:\n      activeBorderColor:\n        - red\n    other: 1\n",
+                                   "gui:\n  showIcons: true\n", "git:\n  paging: {}\n"],
+            "ghostty/config": ["theme = x\n", "theme=ii-auto", "font-size = 12"],
+            "wezterm/wezterm.lua": ["return {}\n", "local w = require('wezterm')\nlocal config = {}\nreturn config\n",
+                                    "local colors = require('colors')\n"],
+            "yazi/theme.toml": ["[mgr]\n", '[flavor]\nuse = "ii-auto"\n', '[flavor]\nuse = "catppuccin"\n[x]\nuse = "y"\n',
+                                "[flavor]\ndark = 'x'\n"],
+            "fuzzel/fuzzel.ini": ["[main]\nfont=x\n", "include=~/.config/fuzzel/fuzzel_theme.ini\n"],
+        }
+        for rel, texts in variants.items():
+            if rng.random() < 0.6:
+                (cfg / rel).parent.mkdir(parents=True, exist_ok=True)
+                (cfg / rel).write_bytes(rng.choice(texts).encode())
+
+    stamp = lambda b: re.sub(rb"backup_\d{8}_\d{6}", b"backup_TS", b)
+    return pair("terminals", work, list(range(n)), lambda c, b: [str(REAL_PY), str(script), *argv(c, b)],
+                lambda c, b: [str(ACCEL), "terminals", *argv(c, b)], setup=setup, jobs=jobs, norm=stamp)
+
+
+def claude_suite(work: Path, quick: bool, jobs: int):
+    script = py_original(work, "scripts/colors/claude_code_theme.py")
+    n = 30 if quick else 300
+
+    def argv(case, base):
+        g = gen_dir(base)
+        if case == "missing":
+            return ["--terminal", str(g / "nope.json"), "--palette", str(g / "palette.json"), "--mode", "dark", "--out-dir", str(base / "out")]
+        mode = "light" if case % 3 == 0 else "dark"
+        extra = ["--print"] if case % 11 == 5 else []
+        return ["--terminal", str(g / "terminal.json"), "--palette", str(g / "palette.json"), "--mode", mode,
+                "--out-dir", str(base / "out/themes"), *extra]
+
+    setup = lambda case, base: theme_inputs(random.Random(f"claude{case}"), base)
+    return pair("claude", work, list(range(n)) + ["missing"], lambda c, b: [str(REAL_PY), str(script), *argv(c, b)],
+                lambda c, b: [str(ACCEL), "claude-code-theme", *argv(c, b)], setup=setup, jobs=jobs)
+
+
+def system24_suite(work: Path, quick: bool, jobs: int):
+    script = py_original(work, "scripts/colors/system24_palette.py")
+    n = 30 if quick else 300
+
+    def setup(case, base):
+        rng = random.Random(f"s24{case}")
+        theme_inputs(rng, base)
+        g = gen_dir(base)
+        hexes = lambda: "#%06x" % rng.randrange(1 << 24)
+        keys = ["primary", "on_primary", "secondary", "tertiary", "surface", "surface_container", "surface_container_low",
+                "surface_container_high", "surface_container_highest", "on_surface", "on_surface_variant", "outline",
+                "outline_variant", "error", "background", "on_background", "primary_container", "on_primary_container"]
+        if rng.random() < 0.6:
+            (g / "app-palette.json").write_text(json.dumps({k: hexes() for k in keys if rng.random() < 0.85}))
+        if rng.random() < 0.3:
+            (g / "colors.json").write_text(json.dumps({k: hexes() for k in keys if rng.random() < 0.85}))
+        if case % 5 == 0:
+            for f in ("app-palette.json", "palette.json", "colors.json"):
+                (g / f).unlink(missing_ok=True)
+        for d in ("vesktop", "Vesktop", "equicord", "Equibop"):
+            if rng.random() < 0.3:
+                (base / "home/.config" / d / "themes").mkdir(parents=True, exist_ok=True)
+
+    return pair("system24", work, list(range(n)), lambda c, b: [str(REAL_PY), str(script)],
+                lambda c, b: [str(ACCEL), "system24-themegen"], setup=setup, jobs=jobs)
+
+
+def cover_suite(work: Path, quick: bool, jobs: int):
+    script = py_original(work, "scripts/cava/extract_cover_colors.py")
+    images = synth_images(work) + wallpapers(quick)[: 6 if quick else 40]
+    cases = list(range(len(images))) + ["noargs", "missing", "badcount"]
+
+    def argv(case, base):
+        if case == "noargs":
+            return []
+        if case == "missing":
+            return [str(base / "nope.png")]
+        if case == "badcount":
+            return [str(images[0]), "x"]
+        count = [8, 3, 1, 12, 16][case % 5]
+        out = [str(base / "out/cover.json")] if case % 2 else []
+        return [str(images[case]), str(count), *out]
+
+    return pair("cover", work, cases, lambda c, b: [str(REAL_PY), str(script), *argv(c, b)],
+                lambda c, b: [str(ACCEL), "extract-cover-colors", *argv(c, b)], jobs=jobs)
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -751,7 +926,7 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    every = ("washi", "material", "region", "opencode", "vscode", "zed")
+    every = ("washi", "material", "region", "opencode", "vscode", "zed", "terminals", "claude", "system24", "cover")
     suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
@@ -761,7 +936,8 @@ def main():
     failed = 0
     try:
         for name in suites:
-            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite}[name](work, quick, jobs)
+            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite, "terminals": terminals_suite,
+                       "claude": claude_suite, "system24": system24_suite, "cover": cover_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]
             print(f"\n== {name}: {len(results) - len(bad)} of {len(results)} cases identical"

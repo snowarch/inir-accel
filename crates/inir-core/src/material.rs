@@ -3,7 +3,7 @@
 //! match exactly (GIF, BMP, TIFF, CMYK, 16-bit, a JPEG without the system's libturbojpeg) goes through the `image`
 //! crate. The venv shim still answers only for the exact script it was transcribed from.
 
-mod hct;
+pub(crate) mod hct;
 pub(crate) mod pixels;
 mod planes;
 pub(crate) mod py;

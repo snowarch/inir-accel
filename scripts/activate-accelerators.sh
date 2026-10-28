@@ -70,9 +70,6 @@ case "$cmd" in
             inir-opencode-themegen \
             inir-system24-themegen \
             generate_colors_material.py \
-            generate_terminal_configs.py \
-            claude_code_theme.py \
-            system24_palette.py \
             extract_cover_colors.py \
             resolve_audio_source.py \
             clipboard-store.py \

@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, themegens, thumbgen, vscode, washi, zed};
+use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, thumbgen, vscode, washi, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -34,13 +34,13 @@ fn main() {
         "inir-vscode-themegen" => std::process::exit(vscode::run_cli(&args[0], &args[1..])),
         "inir-zed-themegen" => std::process::exit(zed::run_cli(&args[0], &args[1..])),
         "inir-opencode-themegen" => std::process::exit(cmd_opencode_themegen(&args[1..])),
-        "inir-system24-themegen" | "system24_palette.py" => {
+        "inir-system24-themegen" => {
             std::process::exit(cmd_system24_themegen(&args[1..]))
         }
-        "generate_terminal_configs" | "generate_terminal_configs.py" => {
+        "generate_terminal_configs" => {
             std::process::exit(cmd_terminals(&args[1..]))
         }
-        "claude_code_theme" | "claude_code_theme.py" => {
+        "claude_code_theme" => {
             std::process::exit(cmd_claude_code_theme(&args[1..]))
         }
         "extract_cover_colors" | "extract_cover_colors.py" => {
@@ -266,13 +266,7 @@ fn cmd_dev_hot_reload(args: &[String]) -> i32 {
 }
 
 fn cmd_terminals(args: &[String]) -> i32 {
-    match themegens::run_generate_terminal_configs_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
+    inir_core::terminals::run_cli(args)
 }
 
 fn cmd_opencode_themegen(args: &[String]) -> i32 {
@@ -280,23 +274,11 @@ fn cmd_opencode_themegen(args: &[String]) -> i32 {
 }
 
 fn cmd_system24_themegen(args: &[String]) -> i32 {
-    match themegens::run_system24_themegen_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
+    inir_core::system24::run_cli(args)
 }
 
 fn cmd_claude_code_theme(args: &[String]) -> i32 {
-    match helpers::run_claude_code_theme_cli(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
-        }
-    }
+    inir_core::claude_theme::run_cli(args)
 }
 
 fn cmd_extract_cover_colors(args: &[String]) -> i32 {
