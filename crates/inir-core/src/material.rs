@@ -36,6 +36,14 @@ pub fn probe(args: &[String]) -> i32 {
             }
             0
         }
+        Some("hct-of") => {
+            // hct-of <argb>...: hue, chroma and tone of each colour (devkit's terminal palette test).
+            for argb in args[1..].iter().filter_map(|s| s.parse::<u32>().ok()) {
+                let h = hct::Hct::from_int(argb);
+                println!("{} {} {}", py::float_repr(h.hue), py::float_repr(h.chroma), py::float_repr(h.tone));
+            }
+            0
+        }
         Some("pixels") => {
             // pixels <image> <size>: what the quantizer gets (size, channels, FNV-1a of the bytes), then the
             // auto-scheme statistics and decision.
