@@ -70,15 +70,7 @@ case "$cmd" in
             inir-opencode-themegen \
             inir-system24-themegen \
             generate_colors_material.py \
-            extract_cover_colors.py \
-            resolve_audio_source.py \
-            clipboard-store.py \
-            keyboard_lock_state_daemon.py \
-            dev_hot_reload.py \
             least_busy_region.py \
-            thumbgen.py \
-            detect_sensors.py \
-            scan-plugins.py \
             scan-widgets.sh \
             icon-theme-for-mode.sh
         do

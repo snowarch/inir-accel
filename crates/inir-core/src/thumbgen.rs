@@ -1,7 +1,7 @@
 // This code was written by: Hikari.
 //! Native Rust replacement for `scripts/thumbnails/thumbgen.py`.
 //!
-//! Computes exact Freedesktop / QML `ThumbnailImage` MD5 paths (`~/.cache/thumbnails/<size>/<md5>.png`)
+//! Computes exact Freedesktop / QML `ThumbnailImage` MD5 paths (`$XDG_CACHE_HOME/thumbnails/<size>/<md5>.png`)
 //! and generates missing thumbnails in parallel across Rayon worker threads without Python or
 //! per-image ImageMagick process storms.
 
@@ -125,9 +125,11 @@ pub fn get_thumbnail_path(fpath: &str, size_name: &str) -> PathBuf {
         .join("/");
     let url = format!("file://{}", encoded);
     let md5 = md5_hex(url.as_bytes());
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home)
-        .join(".cache")
+    // where ThumbnailImage.qml looks: Directories.genericCache
+    let cache = std::env::var("XDG_CACHE_HOME").ok().filter(|c| c.starts_with('/')).map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())).join(".cache")
+    });
+    cache
         .join("thumbnails")
         .join(size_name)
         .join(format!("{}.png", md5))
@@ -163,6 +165,22 @@ fn is_video(path: &Path) -> bool {
     )
 }
 
+/// The PNG with the freedesktop tags a thumbnailer writes (Thumb::URI, Thumb::MTime), as GnomeDesktop did.
+fn save_tagged(thumb: &image::DynamicImage, out: &Path, src: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let rgba = thumb.to_rgba8();
+    let src_str = src.to_string_lossy();
+    let url = format!("file://{}", src_str.split('/').map(quote_segment).collect::<Vec<_>>().join("/"));
+    let mtime = fs::metadata(src)?.modified()?.duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let mut enc = png::Encoder::new(io::BufWriter::new(fs::File::create(out)?), rgba.width(), rgba.height());
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.add_text_chunk("Thumb::URI".into(), url)?;
+    enc.add_text_chunk("Thumb::MTime".into(), mtime.to_string())?;
+    enc.add_text_chunk("Software".into(), "inir-accel".into())?;
+    enc.write_header()?.write_image_data(rgba.as_raw())?;
+    Ok(())
+}
+
 pub fn make_thumbnail_one(fpath: &Path, size_name: &str) -> bool {
     let fpath_str = fpath.to_string_lossy();
     let thumb_path = get_thumbnail_path(&fpath_str, size_name);
@@ -178,7 +196,7 @@ pub fn make_thumbnail_one(fpath: &Path, size_name: &str) -> bool {
         if let Ok(img) = image::open(fpath) {
             let thumb = img.resize(px_size, px_size, FilterType::Triangle);
             let tmp_path = thumb_path.with_extension(format!("tmp.{}.png", std::process::id()));
-            if thumb.save_with_format(&tmp_path, image::ImageFormat::Png).is_ok() {
+            if save_tagged(&thumb, &tmp_path, fpath).is_ok() {
                 if fs::rename(&tmp_path, &thumb_path).is_ok() {
                     return true;
                 }

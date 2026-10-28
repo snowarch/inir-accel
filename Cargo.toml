@@ -24,6 +24,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 toml = { version = "0.8", features = ["preserve_order"] }
 libc = "0.2"
 regex = "1"
+png = "0.18"
 
 [profile.release]
 lto = "thin"
