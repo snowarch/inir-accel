@@ -134,7 +134,7 @@ fn find_real_python() -> PathBuf {
     let home = env::var("HOME").unwrap_or_default();
     let candidates = [
         format!("{home}/.local/state/quickshell/.venv/bin/python3.real"),
-        format!("{home}/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12"),
+        format!("{home}/.local/share/uv/python/cpython-3.12-linux-{}-gnu/bin/python3.12", env::consts::ARCH),
         "/usr/bin/python3".to_string(),
     ];
     for c in candidates {

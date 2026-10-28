@@ -217,6 +217,7 @@ fn use_fma() -> bool {
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
+        // arm takes amd64's plain path: the palette an x86 without FMA gets
         false
     }
 }
