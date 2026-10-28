@@ -25,7 +25,10 @@ pub fn imread(path: &str, gray: bool, site_packages: Option<&str>) -> Read {
     let (mat, orientation) = if bytes.starts_with(b"\xFF\xD8\xFF") {
         match jpeg(&bytes, gray) {
             Some(m) => (m, jpeg_orientation(&bytes)),
-            None => return any(&bytes, gray),
+            None => match any(&bytes, gray) {
+                Read::Ok(m) => (m, jpeg_orientation(&bytes)),
+                none => return none,
+            },
         }
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         match png(&bytes, gray, site_packages) {
