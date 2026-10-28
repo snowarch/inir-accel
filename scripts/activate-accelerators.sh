@@ -34,10 +34,8 @@ EOF
 
 cmd="${1:-status}"
 
-# Only what test/parity.py proved byte for byte the same as the original takes over a live hook; inir-system24-themegen
-# never had a source in the shell, so it only gets its original back.
+# The helpers inir compiled from Go until 3.0; test/parity.py proved each port byte for byte against it.
 PARITY_GO=(inir-washi inir-opencode-themegen inir-vscode-themegen inir-zed-themegen)
-ALL_GO=(inir-washi inir-vscode-themegen inir-zed-themegen inir-opencode-themegen inir-system24-themegen)
 
 restore_go() {
     if [[ -L "${STATE_BIN_DIR}/$1" ]]; then
@@ -92,8 +90,7 @@ case "$cmd" in
         ln -sf "$INSTALLED_BIN" "${HOME}/.local/bin/inir-accel"
 
         # 2. Hook into iNiR's native state bin cache ($STATE_BIN_DIR/inir-*)
-        for gobin in "${ALL_GO[@]}"; do
-            [[ " ${PARITY_GO[*]} " == *" ${gobin} "* ]] || { restore_go "$gobin"; continue; }
+        for gobin in "${PARITY_GO[@]}"; do
             if [[ -f "${STATE_BIN_DIR}/${gobin}" && ! -L "${STATE_BIN_DIR}/${gobin}" ]]; then
                 mv -f "${STATE_BIN_DIR}/${gobin}" "${STATE_BIN_DIR}/${gobin}.go.bak"
             fi
@@ -115,7 +112,7 @@ case "$cmd" in
         echo "  - Venv python3 : ${VENV_BIN_DIR}/python3 -> ${INSTALLED_BIN} (Material and region; the rest go to python3.real)"
         ;;
     uninstall)
-        for gobin in "${ALL_GO[@]}"; do
+        for gobin in "${PARITY_GO[@]}"; do
             restore_go "$gobin"
         done
         if [[ -e "${VENV_BIN_DIR}/python3.real" ]]; then
@@ -136,8 +133,8 @@ case "$cmd" in
         echo "=== inir-rust-plugin Status ==="
         echo "Workspace      : ${PLUGIN_ROOT}"
         echo "Resident Binary: ${INSTALLED_BIN} ($( [[ -x "$INSTALLED_BIN" ]] && echo "INSTALLED & ACTIVE" || echo "NOT INSTALLED" ))"
-        for gobin in "${ALL_GO[@]}"; do
-            echo "Go Hook (${gobin}): $(readlink -f "${STATE_BIN_DIR}/${gobin}" 2>/dev/null || echo "none")"
+        for gobin in "${PARITY_GO[@]}"; do
+            echo "Go Hook (${gobin}): $(readlink -e "${STATE_BIN_DIR}/${gobin}" 2>/dev/null || echo "none")"
         done
         echo "Venv Hook      : ${VENV_BIN_DIR}/python3 -> $(readlink -f "${VENV_BIN_DIR}/python3" 2>/dev/null || echo "none")"
         ;;
