@@ -24,6 +24,7 @@ pub mod keybinds;
 pub mod lyrics;
 pub mod material;
 pub mod mpvwait;
+pub mod niriconfig;
 pub mod net;
 pub mod opencode;
 pub mod osk;

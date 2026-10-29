@@ -162,7 +162,7 @@ pub fn slice(s: &str, a: usize, b: Option<usize>) -> String {
 
 // ---------------------------------------------------------------- files
 
-fn strerror(code: i32) -> String {
+pub(crate) fn strerror(code: i32) -> String {
     unsafe { CStr::from_ptr(libc::strerror(code)) }.to_string_lossy().into_owned()
 }
 

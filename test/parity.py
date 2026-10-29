@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [findregions] [opencode] [vscode] [zed] [terminals] [claude] [system24] [cover]
+    test/parity.py [washi] [material] [region] [findregions] [opencode] [vscode] [zed] [terminals] [claude] [system24] [cover] [niriconfig]
                    [--quick] [--keep] [-j N]
 
 Every case runs twice, once through the original (washi and the themegens built from the Go the shell had, its
@@ -955,6 +955,111 @@ def zed_suite(work: Path, quick: bool, jobs: int):
     return list(pmap(one, cases, jobs))
 
 
+# ---------------------------------------------------------------- niri-config
+
+NIRI_SETS = [("input", k, v) for k, v in [
+    ("keyboard.layout", "es"), ("keyboard.variant", "dvorak"), ("keyboard.options", ""), ("keyboard.repeat-delay", "300"), ("keyboard.numlock", "on"),
+    ("keyboard.numlock", "off"), ("keyboard.track-layout", "window"), ("touchpad.tap", "off"), ("touchpad.tap", "on"), ("touchpad.dwt", "on"),
+    ("touchpad.accel-speed", "-0.3"), ("touchpad.accel-profile", "flat"), ("touchpad.click-method", "clickfinger"), ("mouse.natural-scroll", "on"),
+    ("mouse.accel-speed", "0.5"), ("trackpoint.left-handed", "on"), ("trackpoint.scroll-method", "edge"), ("cursor.xcursor-theme", "Bibata"),
+    ("cursor.xcursor-size", "32"), ("cursor.hide-when-typing", "off"), ("warp-mouse-to-focus", "center-xy"), ("warp-mouse-to-focus", "off"),
+    ("focus-follows-mouse", 'max-scroll-amount="10%"'), ("mod-key", "Alt"), ("disable-power-key-handling", "on"), ("bogus", "x"), ("mouse.bogus", "x")]]
+NIRI_SETS += [("layout", k, v) for k, v in [
+    ("gaps", "12"), ("center-focused-column", "always"), ("always-center-single-column", "off"), ("empty-workspace-above-first", "on"),
+    ("default-column-display", "tabbed"), ("overview.zoom", "0.6"), ("border.enabled", "on"), ("focus-ring.enabled", "off"), ("shadow.enabled", "on"),
+    ("border.width", "3"), ("focus-ring.active-color", "#ff0000"), ("shadow.softness", "40"), ("shadow.offset", "2, 8"), ("struts.left", "10"),
+    ("bogus.x", "1"), ("bogus", "1")]]
+NIRI_SETS += [("animations", k, v) for k, v in [
+    ("enabled", "off"), ("enabled", "on"), ("slowdown", "2.0"), ("window-open.damping-ratio", "0.5"), ("window-open.stiffness", "700"),
+    ("window-close.enabled", "off"), ("recent-windows-close.enabled", "off"), ("screenshot-ui-open.epsilon", "0.01"), ("nope.x", "1"), ("window-open.bad", "1")]]
+NIRI_SETS += [("window-rules", k, v) for k, v in [
+    ("corner-radius", "12.7"), ("inactive-opacity", "0.8"), ("clip-to-geometry", "false"), ("active-opacity", "0.95"), ("active-opacity", "1e-05"),
+    ("blur", "on"), ("blur", "off"), ("xray", "off"), ("xray", "on"), ("border-behind", "on"), ("border-behind", "off"), ("bogus", "1")]]
+NIRI_SETS += [("blur", k, v) for k, v in [
+    ("enabled", "off"), ("enabled", "on"), ("strength", "strong"), ("strength", "x"), ("noise", "0.05"), ("saturation", "abc"), ("bogus", "1")]]
+NIRI_SETS += [("output", "HDMI-A-2.scale", "1.5"), ("output", "HDMI-A-2.nope", "1"), ("output", "noprop", "1"), ("nosection", "a", "b")]
+NIRI_CALLS = [["outputs"], ["get-input"], ["get-hot-corners"], ["get-layout"], ["get-animations"], ["get-animation-presets"], ["get-window-rules"],
+              ["get-blur"], ["list-cursor-themes"], ["validate"], ["detect-customizations"], ["get-binds"], ["get-alt-tab"], [], ["bogus"],
+              ["apply-output", "HDMI-A-2", "mode=1920x1080@60", "vrr=on-demand", "position=10,20", "bad"],
+              ["persist-output", "HDMI-A-2", "vrr=on-demand", "scale=1.25", "mode=1280x720@60"],
+              ["persist-output", "DP-9", "mode=1x1", "position=1,2", "transform=90", "vrr=on"], ["persist-output", "HDMI-A-2", "vrr=off"],
+              ["persist-output", "X", "nope=1"], ["persist-layout", '{"HDMI-A-2": {"x": 1920, "y": "0"}, "DP-1": {"x": 0.7, "y": 0}}'],
+              ["persist-layout", '{"A": {"x": null, "y": 0}}'], ["persist-layout", "[]"], ["sync-cursor"], ["sync-backdrop-overview-shadow", "on"],
+              ["sync-backdrop-overview-shadow", "off"], ["set-alt-tab", "inir"], ["set-alt-tab", "niri"], ["set-bind", "Mod+Y", "code"],
+              ["set-bind", "Mod+T", 'spawn "foot"', "--options", "repeat=false"], ["set-bind", "Mod+Shift+Q", "close-window"], ["remove-bind", "Mod+T"],
+              ["remove-bind", "Mod+Nope"], ["apply-animation-preset", "snappy"], ["apply-animation-preset", "nope"]]
+NIRI_CALLS += [["set", *s] for s in NIRI_SETS]
+NIRI_OUTPUTS = {
+    "HDMI-A-2": {"name": "HDMI-A-2", "make": "Acme", "model": "X", "serial": "1", "physical_size": [600, 340], "modes": [
+        {"width": 1920, "height": 1080, "refresh_rate": 74973, "is_preferred": False}, {"width": 1920, "height": 1080, "refresh_rate": 60000, "is_preferred": True},
+        {"width": 1280, "height": 720, "refresh_rate": 60000, "is_preferred": False}], "current_mode": 0, "vrr_supported": True, "vrr_enabled": False,
+        "logical": {"x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": "Normal"}},
+    "DP-1": {"name": "DP-1", "make": "", "model": "", "serial": None, "modes": [], "current_mode": None, "logical": None}}
+
+
+def niri_fakes(work: Path) -> Path:
+    """niri, gsettings, systemctl and dbus-update-activation-environment that log their argv; niri answers outputs and
+    action --help from fixtures and validates with the real niri when there is one."""
+    d = work / "niri-bin"
+    d.mkdir(exist_ok=True)
+    (d / "outputs.json").write_text(json.dumps(NIRI_OUTPUTS))
+    real = shutil.which("niri")
+    log = 'echo "$(basename "$0") $*" | sed "s#$HOME#HOME#g" >> "$NC_LOG"\n'
+    (d / "niri").write_text(f"""#!/bin/sh
+{log}case "$1 $2 $3" in
+  "msg -j outputs") cat {d}/outputs.json ;;
+  "msg action --help") printf 'Usage: niri msg action\\n\\nActions:\\n  quit  Exit\\n  spawn  Spawn\\n  close-window  Close\\n\\nOptions:\\n' ;;
+  "--version"*) echo "niri 26.04 (abc)" ;;
+  validate*) {f'exec {real} "$@"' if real else "exit 0"} ;;
+esac
+""")
+    for tool in ("gsettings", "systemctl", "dbus-update-activation-environment"):
+        (d / tool).write_text("#!/bin/sh\n" + log)
+    for f in d.iterdir():
+        f.chmod(0o755)
+    return d
+
+
+def niriconfig_suite(work: Path, quick: bool, jobs: int):
+    """Every command the shell runs (reads, set <section>, binds, outputs, presets, cursor) on his niri config, the
+    shipped defaults, a single-file config, an edited one and none: stdout, exit code, every file and every niri,
+    gsettings or systemctl call."""
+    script = py_original(work, "scripts/niri-config.py")
+    fakes, tmp = niri_fakes(work), work / "niri-tmp"
+    tmp.mkdir(exist_ok=True)
+    defaults = SHELL / "defaults/niri"
+
+    def mono(cfg):
+        shutil.copytree(defaults, cfg)
+        top = cfg / "config.kdl"
+        text = "\n".join(l for l in top.read_text().splitlines() if not l.strip().startswith("include")) + "\n"
+        top.write_text(text + "".join(f.read_text() for f in sorted((cfg / "config.d").glob("*.kdl"))))
+
+    def edited(cfg):
+        shutil.copytree(defaults, cfg)
+        d = cfg / "config.d"
+        (d / "15-outputs.kdl").write_text('output "HDMI-A-2" {\n    mode "1920x1080@74.973"\n    variable-refresh-rate on-demand=true\n'
+                                          '    // hot-corners\n    hot-corners {\n        top-right\n    }\n}\n')
+        lay = d / "20-layout-and-overview.kdl"
+        lay.write_text(lay.read_text().replace("gaps", "// a comment\n    gaps", 1) + "\nlayout {\n}\n")
+        (d / "99-mine.kdl").write_text('// mine\nwindow-rule {\n    match app-id="foo"\n    opacity 0.5\n}\n')
+        (cfg.parent / "environment.d").mkdir(parents=True)
+        (cfg.parent / "environment.d/inir.conf").write_text("FOO=1\nXCURSOR_THEME=old\n")
+
+    configs = {"defaults": lambda cfg: shutil.copytree(defaults, cfg), "edited": edited}
+    if not quick:
+        configs.update({"mono": mono, "none": lambda cfg: None})
+        if (HOME / ".config/niri/config.kdl").exists():
+            configs["his"] = lambda cfg: shutil.copytree(HOME / ".config/niri", cfg, symlinks=True)
+    cases = [(c, a) for c in configs for a in NIRI_CALLS]
+    norm = lambda b: re.sub(rb"\d{4}-\d\d-\d\dT[0-9:.]+Z", b"TS", re.sub(rb"inir-niri-validate-[A-Za-z0-9_]+", b"SCRATCH", b))
+    env = lambda i, base: {"PATH": f"{fakes}:/usr/bin:/bin", "NC_LOG": str(base / "calls.log"), "INIR_SHELL": str(SHELL), "TMPDIR": str(tmp)}
+    results = pair("niriconfig", work, list(range(len(cases))), lambda i, b: [str(REAL_PY), str(script), *cases[i][1]],
+                   lambda i, b: [str(ACCEL), "niri-config", *cases[i][1]], setup=lambda i, base: configs[cases[i][0]](base / "home/.config/niri"),
+                   extra_env=env, jobs=jobs, norm=norm)
+    return [(f"{cases[i][0]} {' '.join(cases[i][1])}", label, problems) for i, label, problems in results]
+
+
 def pmap(fn, items, jobs):
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
         yield from ex.map(fn, items)
@@ -964,7 +1069,7 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    every = ("washi", "material", "region", "findregions", "opencode", "vscode", "zed", "terminals", "claude", "system24", "cover")
+    every = ("washi", "material", "region", "findregions", "opencode", "vscode", "zed", "terminals", "claude", "system24", "cover", "niriconfig")
     suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
@@ -975,7 +1080,7 @@ def main():
     try:
         for name in suites:
             results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "findregions": findregions_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite, "terminals": terminals_suite,
-                       "claude": claude_suite, "system24": system24_suite, "cover": cover_suite}[name](work, quick, jobs)
+                       "claude": claude_suite, "system24": system24_suite, "cover": cover_suite, "niriconfig": niriconfig_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]
             print(f"\n== {name}: {len(results) - len(bad)} of {len(results)} cases identical"

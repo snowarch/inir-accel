@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{addplugin, aimodels, apps, daemons, devices, discord_compress, family_switch, findregions, gameperf, helpers, inifile, innertube, keybinds, lyrics, material, mpvwait, opencode, osk, pear, prewarm, region, sddm, sensors, spicetify, study, thumbgen, voice, vscode, washi, ytrate, zed};
+use inir_core::{addplugin, aimodels, apps, daemons, devices, discord_compress, family_switch, findregions, gameperf, helpers, inifile, innertube, keybinds, lyrics, material, mpvwait, niriconfig, opencode, osk, pear, prewarm, region, sddm, sensors, spicetify, study, thumbgen, voice, vscode, washi, ytrate, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -115,6 +115,7 @@ fn main() {
         "spicetify-block" => spicetify::run_block(rest),
         "ini-set" => inifile::run_cli(rest),
         "mpv-wait" => mpvwait::run_cli(rest),
+        "niri-config" => niriconfig::run_cli(rest),
         "usb-snapshot" => {
             println!("{}", devices::usb_snapshot());
             0
@@ -268,6 +269,7 @@ Usage:
   inir-accel spicetify-block <css-file> <bridge|playback|colors|tui> <block>
   inir-accel ini-set <file> <section> <key> <value> [--replace-invalid]
   inir-accel mpv-wait <socket> <reject-file> [seconds]
+  inir-accel niri-config <command> [args]
   inir-accel innertube <ping|search|home|radio|artist|album|playlist|library|rate|lyrics|song|auth-status|connect|...> [args]
   inir-accel game-performance-monitor --pid <pid> [--watch] [--interval-ms N] [--log-dir <dir>]... [--log-file <csv>]
   inir-accel ipc-probe

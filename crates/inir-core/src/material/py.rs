@@ -453,6 +453,41 @@ fn dump_into(v: &Json, depth: usize, out: &mut String) {
     }
 }
 
+/// `json.dumps(value)`: the default separators, `ensure_ascii`.
+pub fn json_dumps(v: &Json) -> String {
+    let mut out = String::new();
+    dumps_into(v, &mut out);
+    out
+}
+
+fn dumps_into(v: &Json, out: &mut String) {
+    match v {
+        Json::Arr(a) => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                dumps_into(x, out);
+            }
+            out.push(']');
+        }
+        Json::Obj(o) => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                json_str(k, out);
+                out.push_str(": ");
+                dumps_into(x, out);
+            }
+            out.push('}');
+        }
+        other => dump_into(other, 0, out),
+    }
+}
+
 /// `json.dumps(dict_of_str)` with the default separators, as `iris-seeds.json` is written.
 pub fn json_dumps_flat(pairs: &[(&str, String)]) -> String {
     let mut out = String::from("{");
