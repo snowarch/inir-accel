@@ -28,7 +28,7 @@ const LED_NUML: usize = 0x00;
 const LED_CAPSL: usize = 0x01;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct InputEvent {
     tv_sec: libc::time_t,
     tv_usec: libc::suseconds_t,
@@ -333,9 +333,9 @@ pub fn run_keyboard_lock_daemon(once: bool) -> Result<i32, String> {
                 continue;
             }
             if (pfd.revents & libc::POLLIN) != 0 {
-                let mut ev_buf = [0u8; std::mem::size_of::<InputEvent>() * 16];
+                let mut ev_buf = [InputEvent::default(); 16];
                 loop {
-                    let n = unsafe { libc::read(fd, ev_buf.as_mut_ptr() as *mut libc::c_void, ev_buf.len()) };
+                    let n = unsafe { libc::read(fd, ev_buf.as_mut_ptr() as *mut libc::c_void, std::mem::size_of_val(&ev_buf)) };
                     if n < (std::mem::size_of::<InputEvent>() as isize) {
                         if n < 0 {
                             let err = std::io::Error::last_os_error();
@@ -346,9 +346,7 @@ pub fn run_keyboard_lock_daemon(once: bool) -> Result<i32, String> {
                         break;
                     }
                     let count = (n as usize) / std::mem::size_of::<InputEvent>();
-                    let events = unsafe {
-                        std::slice::from_raw_parts(ev_buf.as_ptr() as *const InputEvent, count)
-                    };
+                    let events = &ev_buf[..count];
                     for ev in events {
                         if ev.type_ == EV_LED && (ev.code as usize == LED_CAPSL || ev.code as usize == LED_NUML) {
                             need_emit = true;
@@ -829,17 +827,18 @@ pub fn run_super_overview_daemon() -> i32 {
                 continue;
             }
             let device = &mut devices[idx];
-            let mut buf = [0u8; std::mem::size_of::<InputEvent>() * 16];
+            let mut buf = [InputEvent::default(); 16];
             loop {
-                let n = unsafe { libc::read(device.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+                let n = unsafe { libc::read(device.fd, buf.as_mut_ptr() as *mut libc::c_void, std::mem::size_of_val(&buf)) };
                 if n < event_size as isize {
                     // unplugged or asleep: the next rescan adopts it again
-                    if n == 0 || n < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock {
+                    let kind = std::io::Error::last_os_error().kind();
+                    if n == 0 || n < 0 && !matches!(kind, std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) {
                         gone.push(idx);
                     }
                     break;
                 }
-                let events = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const InputEvent, n as usize / event_size) };
+                let events = &buf[..n as usize / event_size];
                 for ev in events.iter().filter(|ev| ev.type_ == EV_KEY) {
                     let (code, down) = (ev.code as usize, ev.value == 1);
                     if !device.keyboard {
