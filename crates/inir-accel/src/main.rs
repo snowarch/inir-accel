@@ -59,7 +59,7 @@ fn main() {
             std::process::exit(cmd_dev_hot_reload(&args[1..]))
         }
         "detect_sensors" | "detect_sensors.py" => std::process::exit(cmd_detect_sensors(&args[1..])),
-        "scan-plugins" | "scan-plugins.py" => std::process::exit(cmd_scan_plugins()),
+        "scan-plugins" | "scan-plugins.py" => std::process::exit(cmd_scan_plugins(&args[1..])),
         "scan-widgets" | "scan-widgets.sh" => std::process::exit(cmd_scan_widgets(&args[1..])),
         "icon-theme-for-mode" | "icon-theme-for-mode.sh" => std::process::exit(cmd_icon_theme(&args[1..])),
         "generate_colors_material" | "generate_colors_material.py" => {
@@ -98,7 +98,7 @@ fn main() {
         "ipc-probe" => cmd_ipc_probe(),
         "detect-sensors" | "sensors" => cmd_detect_sensors(rest),
         "resources" => cmd_resources(),
-        "scan-plugins" => cmd_scan_plugins(),
+        "scan-plugins" => cmd_scan_plugins(rest),
         "scan-widgets" => cmd_scan_widgets(rest),
         "icon-theme" => cmd_icon_theme(rest),
         "fuzzy-apps" => cmd_fuzzy_apps(rest),
@@ -356,8 +356,9 @@ fn cmd_resources() -> i32 {
     0
 }
 
-fn cmd_scan_plugins() -> i32 {
-    println!("{}", apps::scan_plugins_json());
+fn cmd_scan_plugins(args: &[String]) -> i32 {
+    let defaults = args.iter().position(|a| a == "--defaults").and_then(|i| args.get(i + 1)).map(std::path::Path::new);
+    println!("{}", apps::scan_plugins_json(defaults));
     0
 }
 

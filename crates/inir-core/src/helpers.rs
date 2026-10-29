@@ -795,27 +795,31 @@ pub fn strip_browser_markup(markup: &str) -> String {
         }
     }
 
+    // <script>/<style> blocks before comments, as clipboard-store.py did; `<scripts>` is not one
+    for tag in ["script", "style"] {
+        let open_pat = format!("<{tag}");
+        let close_pat = format!("</{tag}>");
+        let mut from = 0;
+        loop {
+            let low = s.to_ascii_lowercase();
+            let Some(rel) = low[from..].find(&open_pat) else { break };
+            let start = from + rel;
+            let next = low[start + open_pat.len()..].chars().next();
+            if next.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                from = start + open_pat.len();
+                continue;
+            }
+            let Some(end) = low[start..].find(&close_pat) else { break };
+            s.replace_range(start..start + end + close_pat.len(), "");
+            from = start;
+        }
+    }
+
     // Remove <!-- ... --> comments
     while let Some(start) = s.find("<!--") {
         if let Some(end) = s[start + 4..].find("-->") {
             s.replace_range(start..start + 4 + end + 3, "");
         } else {
-            break;
-        }
-    }
-
-    // Remove <script>...</script> and <style>...</style>
-    for tag in ["script", "style"] {
-        loop {
-            let low = s.to_ascii_lowercase();
-            let open_pat = format!("<{tag}");
-            let close_pat = format!("</{tag}>");
-            if let Some(start) = low.find(&open_pat) {
-                if let Some(end) = low[start..].find(&close_pat) {
-                    s.replace_range(start..start + end + close_pat.len(), "");
-                    continue;
-                }
-            }
             break;
         }
     }
@@ -1318,4 +1322,16 @@ pub fn check_ipc_socket_alive() -> Result<PathBuf, String> {
     let stream = UnixStream::connect(&sock).map_err(|e| format!("Socket connect failed: {e}"))?;
     let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
     Ok(sock)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_markup_order_and_tag_boundary() {
+        assert_eq!(strip_browser_markup("a<script>x<!--</script>-->b"), "a-->b");
+        assert_eq!(strip_browser_markup("<scripts>keep</scripts>"), "keep");
+        assert_eq!(strip_browser_markup("<STYLE>p{}</STYLE>ok"), "ok");
+    }
 }

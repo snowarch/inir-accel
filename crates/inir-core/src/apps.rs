@@ -488,12 +488,38 @@ pub fn scan_widgets_json(dir: &str, generation: Option<&str>) -> String {
 }
 
 /// Scan plugins directory (`scripts/scan-plugins.py`).
-pub fn scan_plugins_json() -> String {
+fn copy_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &to)?;
+        } else {
+            fs::copy(entry.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
+// The base's built-in web apps (defaults/plugins) land once, when the person has none yet.
+fn bootstrap_default_plugins(defaults: &Path, plugins_dir: &Path) {
+    let Ok(rd) = fs::read_dir(defaults) else { return };
+    for src in rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+        let Some(name) = src.file_name() else { continue };
+        if copy_tree(&src, &plugins_dir.join(name)).is_ok() {
+            eprintln!("[Plugins] Installed default plugin: {}", name.to_string_lossy());
+        }
+    }
+}
+
+pub fn scan_plugins_json(defaults: Option<&Path>) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{home}/.config"));
     let inir_dir = PathBuf::from(&xdg_config).join("inir");
     let legacy_dir = PathBuf::from(&xdg_config).join("illogical-impulse");
-    let config_dir = if inir_dir.is_dir() {
+    // same order as scripts/lib/config-path.sh: a real legacy dir still wins
+    let config_dir = if legacy_dir.is_symlink() && inir_dir.is_dir() {
         inir_dir
     } else if legacy_dir.is_dir() {
         legacy_dir
@@ -501,7 +527,14 @@ pub fn scan_plugins_json() -> String {
         inir_dir
     };
 
-    let plugins_dir = config_dir.join("plugins");
+    scan_plugins_dir(&config_dir.join("plugins"), defaults)
+}
+
+fn scan_plugins_dir(plugins_dir: &Path, defaults: Option<&Path>) -> String {
+    let empty = fs::read_dir(&plugins_dir).map_or(true, |mut rd| rd.next().is_none());
+    if let (true, Some(defaults)) = (empty, defaults) {
+        bootstrap_default_plugins(defaults, &plugins_dir);
+    }
     if !plugins_dir.is_dir() {
         return "[]".to_string();
     }
@@ -554,4 +587,29 @@ pub fn scan_plugins_json() -> String {
     }
 
     serde_json::to_string(&out).unwrap_or_else(|_| "[]".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_plugins_bootstraps_defaults_once() {
+        let root = std::env::temp_dir().join(format!("inir-scan-plugins-{}", std::process::id()));
+        let defaults = root.join("defaults");
+        fs::create_dir_all(defaults.join("music/scripts")).unwrap();
+        fs::write(defaults.join("music/manifest.json"), r#"{"id":"music","url":"https://music.youtube.com"}"#).unwrap();
+        fs::write(defaults.join("music/scripts/a.js"), "x").unwrap();
+        let plugins = root.join("plugins");
+
+        let out: serde_json::Value = serde_json::from_str(&scan_plugins_dir(&plugins, Some(&defaults))).unwrap();
+        assert_eq!(out[0]["id"], "music");
+        assert_eq!(out[0]["name"], "music");
+        assert!(plugins.join("music/scripts/a.js").is_file());
+
+        fs::remove_dir_all(plugins.join("music")).unwrap();
+        fs::create_dir_all(plugins.join("other")).unwrap();
+        assert_eq!(scan_plugins_dir(&plugins, Some(&defaults)), "[]");
+        fs::remove_dir_all(&root).unwrap();
+    }
 }
