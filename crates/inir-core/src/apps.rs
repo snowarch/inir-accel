@@ -513,21 +513,23 @@ fn bootstrap_default_plugins(defaults: &Path, plugins_dir: &Path) {
     }
 }
 
-pub fn scan_plugins_json(defaults: Option<&Path>) -> String {
+/// The shell's config dir, in scripts/lib/config-path.sh's order: a real legacy dir still wins.
+pub fn shell_config_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{home}/.config"));
     let inir_dir = PathBuf::from(&xdg_config).join("inir");
     let legacy_dir = PathBuf::from(&xdg_config).join("illogical-impulse");
-    // same order as scripts/lib/config-path.sh: a real legacy dir still wins
-    let config_dir = if legacy_dir.is_symlink() && inir_dir.is_dir() {
+    if legacy_dir.is_symlink() && inir_dir.is_dir() {
         inir_dir
     } else if legacy_dir.is_dir() {
         legacy_dir
     } else {
         inir_dir
-    };
+    }
+}
 
-    scan_plugins_dir(&config_dir.join("plugins"), defaults)
+pub fn scan_plugins_json(defaults: Option<&Path>) -> String {
+    scan_plugins_dir(&shell_config_dir().join("plugins"), defaults)
 }
 
 fn scan_plugins_dir(plugins_dir: &Path, defaults: Option<&Path>) -> String {

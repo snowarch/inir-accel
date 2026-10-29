@@ -2,10 +2,10 @@
 //! (test/parity.py region, test/region_stages.py) and the code since inir dropped Python. Like the Material port, the
 //! shim answers only for the exact script it was transcribed from.
 
-mod decode;
+pub(crate) mod decode;
 mod kmeans;
 mod resize;
-mod script;
+pub(crate) mod script;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

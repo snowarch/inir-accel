@@ -2,12 +2,14 @@
 //! This code was written by: Hikari.
 #![recursion_limit = "512"]
 
+pub mod addplugin;
 pub mod aimodels;
 pub mod apps;
 pub mod claude_theme;
 pub mod daemons;
 pub mod devices;
 pub mod discord_compress;
+pub mod family_switch;
 pub mod gameperf;
 pub mod gojson;
 pub mod gojsonv;
@@ -21,18 +23,20 @@ pub mod material;
 pub mod net;
 pub mod opencode;
 pub mod osk;
+pub mod pear;
 pub mod prewarm;
 pub mod pyrt;
 pub mod region;
+pub mod sddm;
 pub mod sensors;
 pub mod study;
 pub mod system24;
 pub mod terminals;
 pub mod thumbgen;
 pub mod voice;
-pub mod ytrate;
 pub mod vscode;
 pub mod washi;
+pub mod ytrate;
 pub mod zed;
 
 #[cfg(test)]

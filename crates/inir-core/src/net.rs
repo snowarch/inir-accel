@@ -8,6 +8,8 @@ use std::process::{Command, Stdio};
 
 pub struct Response {
     pub status: u16,
+    /// Where the redirects ended.
+    pub url: String,
     /// curl's `%{header_json}`: lowercase names, each with its values.
     pub headers: Value,
     pub body: Vec<u8>,
@@ -79,12 +81,18 @@ const TRAILER: &[u8] = b"\n<inir-accel-net>";
 
 /// A request that follows redirects; `Err` is curl's own failure (DNS, TLS, timeout), an HTTP error comes back as a status.
 pub fn request(url: &str, headers: &[(&str, &str)], body: Body, timeout: f64) -> Result<Response, String> {
-    let mut out = curl(url, headers, &body, timeout, &["-w", "\n<inir-accel-net>%{http_code} %{header_json}"])?;
+    let mut out = curl(url, headers, &body, timeout, &["-w", "\n<inir-accel-net>%{http_code}\n%{url_effective}\n%{header_json}"])?;
     let cut = out.windows(TRAILER.len()).rposition(|w| w == TRAILER).unwrap_or(out.len());
     let trailer = String::from_utf8_lossy(&out[(cut + TRAILER.len()).min(out.len())..]).into_owned();
     out.truncate(cut);
-    let (status, headers) = trailer.split_once(' ').unwrap_or((trailer.as_str(), ""));
-    Ok(Response { status: status.trim().parse().unwrap_or(0), headers: serde_json::from_str(headers).unwrap_or(Value::Null), body: out })
+    let mut parts = trailer.splitn(3, '\n');
+    let (status, final_url, headers) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    Ok(Response {
+        status: status.trim().parse().unwrap_or(0),
+        url: final_url.to_string(),
+        headers: serde_json::from_str(headers).unwrap_or(Value::Null),
+        body: out,
+    })
 }
 
 pub fn get(url: &str, headers: &[(&str, &str)], timeout: f64) -> Result<Response, String> {
