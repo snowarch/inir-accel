@@ -10,6 +10,7 @@ pub mod daemons;
 pub mod devices;
 pub mod discord_compress;
 pub mod family_switch;
+pub mod findregions;
 pub mod gameperf;
 pub mod gojson;
 pub mod gojsonv;

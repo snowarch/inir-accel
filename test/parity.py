@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Byte parity of inir-accel's helpers against the originals they replace.
 
-    test/parity.py [washi] [material] [region] [opencode] [vscode] [zed] [terminals] [claude] [system24] [cover]
+    test/parity.py [washi] [material] [region] [findregions] [opencode] [vscode] [zed] [terminals] [claude] [system24] [cover]
                    [--quick] [--keep] [-j N]
 
 Every case runs twice, once through the original (washi and the themegens built from the Go the shell had, its
-tree while it has it, else the last commit that did; Material and region through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
+tree while it has it, else the last commit that did; Material, region and findregions through the venv's real Python) and once through inir-accel the way the shell reaches it (the inir-washi symlink and
 the venv's python3 shim). Each run gets its own HOME and XDG dirs, so nothing touches the real session. A case passes
 only when stdout, stderr, the exit code and every file the run leaves behind are byte for byte the same. The shim's
 fallback to real Python points at a stub that fails, so a port that gives up shows as a failure instead of a pass.
 
 Environment: PARITY_SEED and PARITY_WASHI_N widen the generated corpus; INIR_SHELL (default ~/.config/quickshell/inir), ACCEL (default the release build, else bin/inir-accel),
-INIR_VENV (default ~/.local/state/quickshell/.venv), WALLPAPERS (default ~/Imágenes/Wallpapers, optional).
+INIR_VENV (default ~/.local/state/quickshell/.venv), WALLPAPERS (default Wallpapers in the XDG pictures dir, optional).
 """
 import concurrent.futures
 import difflib
@@ -40,7 +40,16 @@ def cargo_target() -> Path:
         return ROOT / "target"
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR") or cargo_target())
 ACCEL = Path(os.environ.get("ACCEL", TARGET / "release/inir-accel" if (TARGET / "release/inir-accel").exists() else ROOT / "bin/inir-accel"))
-WALLPAPERS = Path(os.environ.get("WALLPAPERS", HOME / "Pictures/Wallpapers"))
+
+
+def pictures() -> Path:
+    try:
+        return Path(subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True, check=True).stdout.strip())
+    except (OSError, subprocess.CalledProcessError):
+        return HOME / "Pictures"
+
+
+WALLPAPERS = Path(os.environ.get("WALLPAPERS", pictures() / "Wallpapers"))
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -480,6 +489,35 @@ def region_suite(work: Path, quick: bool, jobs: int):
         problems = compare(res[0][0], res[1][0], what=("rc", "stdout", "files"))
         problems += [p.replace("  stdout", "  stdout (cached)", 1) for p in compare(res[0][1], res[1][1], what=("rc", "stdout"))]
         return f"{i}:{kind}", " ".join(Path(a).name if a.startswith("/") else a for a in argv), problems
+
+    return list(pmap(one, cases, jobs))
+
+
+def findregions_suite(work: Path, quick: bool, jobs: int):
+    """find_regions.py as the region selector calls it (--image, --max-width/height of 0.9 of the screen) and its
+    other knobs; a traceback and the port's error line say the same thing, so rc and stdout count."""
+    script = py_original(work, "scripts/images/find_regions.py")
+    rng = random.Random(11)
+    cases = []
+    for i, img in enumerate(synth_images(work) + wallpapers(quick)):
+        sw, sh = rng.choice([(1920, 1080), (2560, 1440), (3840, 2160)])
+        argv = ["--image", str(img), "--max-width", str(round(sw * 0.9)), "--max-height", str(round(sh * 0.9))]
+        cases.append(("shell", argv))
+        cases.append(("knobs", argv + [
+            ["--single"], ["--hyprctl"], ["--min-width", "40", "--min-height", "40"], ["--resize-factor", "0.05"],
+            ["--k", "1500", "--min-size", "120", "--sigma=0.8"],
+        ][i % 5]))
+    cases.append(("missing", ["--image", str(work / "no-such-screenshot.png")]))
+    cases = list(enumerate(cases))
+
+    def one(case):
+        i, (kind, argv) = case
+        base = work / "findregions" / str(i)
+        base.mkdir(parents=True, exist_ok=True)
+        orig = run([str(REAL_PY), str(script)] + argv, base)
+        port = run([str(ACCEL), "find-regions"] + argv, base)
+        shutil.rmtree(base, ignore_errors=True)
+        return f"{i}:{kind}", " ".join(Path(a).name if a.startswith("/") else a for a in argv), compare(orig, port, what=("rc", "stdout"))
 
     return list(pmap(one, cases, jobs))
 
@@ -926,7 +964,7 @@ def main():
     args = sys.argv[1:]
     quick, keep = "--quick" in args, "--keep" in args
     jobs = int(args[args.index("-j") + 1]) if "-j" in args else max(2, (os.cpu_count() or 4) - 2)
-    every = ("washi", "material", "region", "opencode", "vscode", "zed", "terminals", "claude", "system24", "cover")
+    every = ("washi", "material", "region", "findregions", "opencode", "vscode", "zed", "terminals", "claude", "system24", "cover")
     suites = [a for a in args if a in every] or list(every)
     for need in (ACCEL, REAL_PY, SHELL):
         if not need.exists():
@@ -936,7 +974,7 @@ def main():
     failed = 0
     try:
         for name in suites:
-            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite, "terminals": terminals_suite,
+            results = {"washi": washi_suite, "material": material_suite, "region": region_suite, "findregions": findregions_suite, "opencode": opencode_suite, "vscode": vscode_suite, "zed": zed_suite, "terminals": terminals_suite,
                        "claude": claude_suite, "system24": system24_suite, "cover": cover_suite}[name](work, quick, jobs)
             bad = [r for r in results if r[2]]
             delegated = [r for r in bad if r[2][0].startswith("  delegated")]

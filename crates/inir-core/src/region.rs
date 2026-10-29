@@ -4,7 +4,7 @@
 
 pub(crate) mod decode;
 mod kmeans;
-mod resize;
+pub(crate) mod resize;
 pub(crate) mod script;
 
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 }
 
 /// `site-packages` of a venv with cv2, whose libpng the decoder takes while it is there (the system's otherwise).
-fn site_packages() -> Option<String> {
+pub(crate) fn site_packages() -> Option<String> {
     let lib = crate::material::venv_dir().join("lib");
     let site = std::fs::read_dir(&lib).ok()?.filter_map(|e| e.ok()).map(|e| e.path().join("site-packages")).find(|p| p.join("cv2").is_dir())?;
     Some(site.to_string_lossy().into_owned())
