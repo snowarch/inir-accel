@@ -436,3 +436,12 @@ mod tests {
         assert_eq!(repr_str("it's"), "\"it's\"");
     }
 }
+
+/// shutil.which: the first executable `name` on PATH.
+pub fn which(name: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+}

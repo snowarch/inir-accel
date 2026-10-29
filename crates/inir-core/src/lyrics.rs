@@ -18,7 +18,7 @@ fn get_json(url: &str) -> Result<Value, String> {
     let headers = [("User-Agent", USER_AGENT)];
     let mut response = net::get(url, &headers, TIMEOUT)?;
     if response.status == 429 {
-        sleep(Duration::from_secs_f64(response.retry_after.unwrap_or(1.0).max(0.0)));
+        sleep(Duration::from_secs_f64(response.header("retry-after").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(1.0).max(0.0)));
         response = net::get(url, &headers, TIMEOUT)?;
     }
     if response.status >= 400 {
@@ -67,7 +67,7 @@ fn looks_like(candidate: &Value, title: &str, artist: &str) -> bool {
 }
 
 fn find_lyrics(title: &str, artist: &str, album: &str, duration: Option<f64>) -> Result<Vec<Value>, String> {
-    let q = net::quote;
+    let q = |s: &str| net::quote(s, "/");
     let mut attempts = Vec::new();
     if let Some(d) = duration.filter(|d| *d != 0.0 && !album.is_empty()) {
         attempts.push(format!("{API}/get?track_name={}&artist_name={}&album_name={}&duration={}", q(title), q(artist), q(album), d.trunc() as i64));

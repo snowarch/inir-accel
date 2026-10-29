@@ -28,6 +28,7 @@ pub mod study;
 pub mod system24;
 pub mod terminals;
 pub mod thumbgen;
+pub mod voice;
 pub mod vscode;
 pub mod washi;
 pub mod zed;

@@ -4,7 +4,6 @@ use crate::material::py::expanduser;
 use crate::pyrt;
 use serde_json::{Value, json};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
@@ -52,10 +51,7 @@ fn usage(message: impl std::fmt::Display) -> ! {
 }
 
 fn require_binary(name: &str) -> PathBuf {
-    let executable = |p: &PathBuf| fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-    std::env::var_os("PATH")
-        .and_then(|path| std::env::split_paths(&path).map(|dir| dir.join(name)).find(executable))
-        .unwrap_or_else(|| fail(format!("{name} is required but was not found in PATH")))
+    pyrt::which(name).unwrap_or_else(|| fail(format!("{name} is required but was not found in PATH")))
 }
 
 fn tail(text: &[u8], n: usize) -> String {

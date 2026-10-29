@@ -366,7 +366,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
     let mut url = value("models-url", "");
     if kind == "gemini" && !key.is_empty() && !url.contains("key=") {
-        url = format!("{url}{}key={}", if url.contains('?') { "&" } else { "?" }, net::quote(&key));
+        url = format!("{url}{}key={}", if url.contains('?') { "&" } else { "?" }, net::quote(&key, "/"));
     }
     let owned = headers(&kind, &key);
     let headers: Vec<(&str, &str)> = owned.iter().map(|(k, v)| (*k, v.as_str())).collect();
