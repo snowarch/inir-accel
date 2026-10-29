@@ -14,6 +14,7 @@ pub mod gojsonv;
 pub mod gomath;
 pub mod gotheme;
 pub mod helpers;
+pub mod innertube;
 pub mod keybinds;
 pub mod lyrics;
 pub mod material;
