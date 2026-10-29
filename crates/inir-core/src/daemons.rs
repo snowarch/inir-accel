@@ -1,6 +1,7 @@
 //! Native Rust replacements for iNiR's persistent Python daemons:
 //! 1. `scripts/daemon/keyboard_lock_state_daemon.py` (`evdev` CapsLock/NumLock monitor)
 //! 2. `scripts/daemon/dev_hot_reload.py` (`inotify` QML hot-reload watcher)
+//! 3. `scripts/daemon/inir_super_overview_daemon.py` (`evdev` Super tap -> overview toggle, opt-in)
 
 use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
@@ -694,4 +695,190 @@ pub fn run_dev_hot_reload(root_dir: &Path, shell_pid: i32) -> Result<(), String>
         libc::close(fd);
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- Super tap
+
+const KEY_LEFTMETA: usize = 125;
+const KEY_RIGHTMETA: usize = 126;
+const POINTER_BUTTONS: [usize; 7] = [0x110, 0x111, 0x112, 0x113, 0x114, 0x115, 0x116];
+// coalesces the same tap arriving from several devices (physical + virtual keyboards)
+const SUPER_DEBOUNCE: Duration = Duration::from_millis(250);
+
+struct SuperDevice {
+    path: PathBuf,
+    fd: i32,
+    keyboard: bool,
+    super_down: bool,
+    chord: bool,
+}
+
+// A keyboard with Super or a pointer with buttons, never ydotool's or another virtual device (they echo).
+fn open_super_device(path: &Path) -> Option<SuperDevice> {
+    let c_path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return None;
+    }
+    let mut name_buf = [0u8; 256];
+    let mut key_bits = [0u8; 96];
+    let ok = unsafe {
+        libc::ioctl(fd, eviocgname(name_buf.len()), name_buf.as_mut_ptr()) >= 0
+            && libc::ioctl(fd, eviocgbit(EV_KEY, key_bits.len()), key_bits.as_mut_ptr()) >= 0
+    };
+    let name_len = name_buf.iter().position(|&b| b == 0).unwrap_or(name_buf.len());
+    let name = String::from_utf8_lossy(&name_buf[..name_len]).into_owned();
+    let lower = name.to_lowercase();
+    let keyboard = test_bit(&key_bits, KEY_LEFTMETA) || test_bit(&key_bits, KEY_RIGHTMETA);
+    let pointer = POINTER_BUTTONS.iter().any(|&b| test_bit(&key_bits, b));
+    if !ok || lower.contains("ydotool") || lower.contains("virtual") || !keyboard && !pointer {
+        unsafe { libc::close(fd) };
+        return None;
+    }
+    println!("[inir-super-daemon] Using {} device {} ({name})", if keyboard { "keyboard" } else { "pointer" }, path.display());
+    Some(SuperDevice { path: path.to_path_buf(), fd, keyboard, super_down: false, chord: false })
+}
+
+// The running shell: stock Quickshell (`qs -c inir`, `qs -p <path>/inir`) or the runtime's own `inir-shell`.
+fn find_shell_pid() -> Option<i32> {
+    for entry in fs::read_dir("/proc").ok()?.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
+        let Ok(raw) = fs::read(format!("/proc/{pid}/cmdline")) else { continue };
+        let args: Vec<String> = raw.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+        let exe = args.first().and_then(|a| Path::new(a).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if args.len() < 2 || !matches!(exe.as_str(), "qs" | "quickshell" | "inir-shell") {
+            continue;
+        }
+        if args.len() >= 3 && args[1] == "-c" && args[2] == "inir" {
+            return Some(pid);
+        }
+        if let Some(i) = args.iter().skip(1).position(|a| a == "-p").map(|i| i + 1) {
+            if args.get(i + 1).is_some_and(|p| p.trim_end_matches('/').ends_with("/inir") || p.contains("/inir/")) {
+                return Some(pid);
+            }
+        }
+    }
+    None
+}
+
+// What the IPC call needs from the shell's session, cached while its pid stays.
+fn shell_env(cache: &mut Option<(i32, Vec<(String, String)>)>) -> Vec<(String, String)> {
+    let Some(pid) = find_shell_pid() else {
+        println!("[inir-super-daemon] inir not running, cannot import env");
+        *cache = None;
+        return Vec::new();
+    };
+    if let Some((_, env)) = cache.as_ref().filter(|(p, env)| *p == pid && !env.is_empty()) {
+        return env.clone();
+    }
+    let raw = fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+    let env: Vec<(String, String)> = String::from_utf8_lossy(&raw)
+        .split('\0')
+        .filter_map(|e| e.split_once('='))
+        .filter(|(k, _)| matches!(*k, "WAYLAND_DISPLAY" | "XDG_RUNTIME_DIR" | "QT_QPA_PLATFORM" | "NIRI_SOCKET"))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    println!("[inir-super-daemon] Imported env from inir pid={pid}: {env:?}");
+    *cache = Some((pid, env.clone()));
+    env
+}
+
+fn inir_launcher() -> String {
+    if let Ok(path) = std::env::var("INIR_LAUNCHER_PATH") {
+        return path;
+    }
+    std::env::var_os("PATH")
+        .and_then(|paths| std::env::split_paths(&paths).map(|d| d.join("inir")).find(|p| p.is_file()))
+        .map_or_else(|| "inir".to_string(), |p| p.to_string_lossy().into_owned())
+}
+
+/// A tap of Super with no other key or click toggles the inir overview. Devices are rescanned every 5 s, so one
+/// unplugged comes back and one plugged in later is watched.
+pub fn run_super_overview_daemon() -> i32 {
+    let mut devices: Vec<SuperDevice> = Vec::new();
+    let mut children: Vec<std::process::Child> = Vec::new();
+    let mut env_cache = None;
+    let (mut super_global, mut interaction, mut tap_handled) = (false, false, false);
+    let mut last_toggle: Option<Instant> = None;
+    let mut next_scan = Instant::now();
+    let event_size = std::mem::size_of::<InputEvent>();
+    loop {
+        if Instant::now() >= next_scan {
+            next_scan = Instant::now() + Duration::from_secs(5);
+            for path in list_event_devices() {
+                if !devices.iter().any(|d| d.path == path) {
+                    devices.extend(open_super_device(&path));
+                }
+            }
+            if !devices.iter().any(|d| d.keyboard) {
+                println!("[inir-super-daemon] No keyboards with Super yet, retrying in 5s");
+            }
+            children.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+        }
+        let mut pollfds: Vec<libc::pollfd> = devices.iter().map(|d| libc::pollfd { fd: d.fd, events: libc::POLLIN, revents: 0 }).collect();
+        let timeout = next_scan.saturating_duration_since(Instant::now()).as_millis() as i32;
+        if unsafe { libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, timeout) } <= 0 {
+            continue;
+        }
+        let mut gone = Vec::new();
+        for (idx, pfd) in pollfds.iter().enumerate() {
+            if pfd.revents & libc::POLLIN == 0 {
+                if pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                    gone.push(idx);
+                }
+                continue;
+            }
+            let device = &mut devices[idx];
+            let mut buf = [0u8; std::mem::size_of::<InputEvent>() * 16];
+            loop {
+                let n = unsafe { libc::read(device.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+                if n < event_size as isize {
+                    // unplugged or asleep: the next rescan adopts it again
+                    if n == 0 || n < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock {
+                        gone.push(idx);
+                    }
+                    break;
+                }
+                let events = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const InputEvent, n as usize / event_size) };
+                for ev in events.iter().filter(|ev| ev.type_ == EV_KEY) {
+                    let (code, down) = (ev.code as usize, ev.value == 1);
+                    if !device.keyboard {
+                        if POINTER_BUTTONS.contains(&code) && down && super_global {
+                            interaction = true;
+                        }
+                        continue;
+                    }
+                    if code != KEY_LEFTMETA && code != KEY_RIGHTMETA {
+                        device.chord |= device.super_down && down;
+                        interaction |= super_global && down;
+                        continue;
+                    }
+                    if down {
+                        (device.super_down, device.chord, super_global, interaction, tap_handled) = (true, false, true, false, false);
+                    } else if ev.value == 0 {
+                        let tap = device.super_down && !device.chord && !interaction && !tap_handled;
+                        if tap && last_toggle.is_none_or(|t| t.elapsed() >= SUPER_DEBOUNCE) {
+                            last_toggle = Some(Instant::now());
+                            tap_handled = true;
+                            println!("[inir-super-daemon] Super tap detected, toggling inir overview");
+                            let env = shell_env(&mut env_cache);
+                            if env.is_empty() {
+                                println!("[inir-super-daemon] No inir env available, skipping toggle");
+                            } else {
+                                match Command::new(inir_launcher()).args(["overview", "toggle"]).envs(env).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+                                    Ok(child) => children.push(child),
+                                    Err(e) => println!("[inir-super-daemon] Error running toggle command: {e}"),
+                                }
+                            }
+                        }
+                        (device.super_down, device.chord, super_global, interaction) = (false, false, false, false);
+                    }
+                }
+            }
+        }
+        gone.dedup();
+        for idx in gone.into_iter().rev() {
+            unsafe { libc::close(devices.remove(idx).fd) };
+        }
+    }
 }

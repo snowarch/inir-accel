@@ -5,13 +5,17 @@
 pub mod apps;
 pub mod claude_theme;
 pub mod daemons;
+pub mod devices;
+pub mod gameperf;
 pub mod gojson;
 pub mod gojsonv;
 pub mod gomath;
 pub mod gotheme;
 pub mod helpers;
+pub mod keybinds;
 pub mod material;
 pub mod opencode;
+pub mod osk;
 pub mod prewarm;
 pub mod pyrt;
 pub mod region;

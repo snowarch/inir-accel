@@ -213,6 +213,32 @@ pub fn makedirs(path: &Path) -> R<()> {
 }
 
 /// `os.path.exists` / `Path.exists`: follows links, any error is false.
+/// `str.splitlines()`: every break Python knows, `\r\n` as one, no empty last line.
+pub fn splitlines(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if matches!(c, '\n' | '\r' | '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{85}' | '\u{2028}' | '\u{2029}') {
+            out.push(&s[start..i]);
+            start = i + c.len_utf8();
+            if c == '\r' && chars.peek().is_some_and(|&(_, n)| n == '\n') {
+                chars.next();
+                start += 1;
+            }
+        }
+    }
+    if start < s.len() {
+        out.push(&s[start..]);
+    }
+    out
+}
+
+/// `\s` in a `str` pattern: Unicode whitespace plus the four separators Python counts.
+pub fn is_space(c: char) -> bool {
+    c.is_whitespace() || ('\x1c'..='\x1f').contains(&c)
+}
+
 pub fn exists(path: &Path) -> bool {
     fs::metadata(path).is_ok()
 }

@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, helpers, material, opencode, prewarm, region, sensors, thumbgen, vscode, washi, zed};
+use inir_core::{apps, daemons, devices, gameperf, helpers, keybinds, material, opencode, osk, prewarm, region, sensors, thumbgen, vscode, washi, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -95,6 +95,15 @@ fn main() {
         "clipboard-store" => helpers::run_clipboard_store_cli(rest),
         "keyboard-lock-daemon" => cmd_keyboard_lock_daemon(rest),
         "dev-hot-reload" => cmd_dev_hot_reload(rest),
+        "super-overview-daemon" => daemons::run_super_overview_daemon(),
+        "niri-keybinds" => keybinds::run_niri_cli(rest),
+        "hyprland-keybinds" => keybinds::run_hyprland_cli(rest),
+        "osk-layout-labels" => osk::run_cli(rest),
+        "usb-snapshot" => {
+            println!("{}", devices::usb_snapshot());
+            0
+        }
+        "game-performance-monitor" => gameperf::run_cli(rest),
         "ipc-probe" => cmd_ipc_probe(),
         "detect-sensors" | "sensors" => cmd_detect_sensors(rest),
         "resources" => cmd_resources(),
@@ -223,10 +232,16 @@ Usage:
   inir-accel clipboard-store [--filter]
   inir-accel keyboard-lock-daemon [--once]
   inir-accel dev-hot-reload <shell_root> <shell_pid>
+  inir-accel super-overview-daemon
+  inir-accel niri-keybinds [config.kdl]
+  inir-accel hyprland-keybinds [--path <keybinds.conf>]
+  inir-accel osk-layout-labels \"<layout description>\"
+  inir-accel usb-snapshot
+  inir-accel game-performance-monitor --pid <pid> [--watch] [--interval-ms N] [--log-dir <dir>]... [--log-file <csv>]
   inir-accel ipc-probe
   inir-accel detect-sensors [--sysfs /sys]
   inir-accel resources
-  inir-accel scan-plugins
+  inir-accel scan-plugins [--defaults <dir>]
   inir-accel scan-widgets <widgets-dir> [generation]
   inir-accel icon-theme <theme> [dark|light]
   inir-accel fuzzy-apps <query> [--sloppy]
