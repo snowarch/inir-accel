@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{apps, daemons, devices, gameperf, helpers, keybinds, material, opencode, osk, prewarm, region, sensors, thumbgen, vscode, washi, zed};
+use inir_core::{aimodels, apps, daemons, devices, discord_compress, gameperf, helpers, keybinds, lyrics, material, opencode, osk, prewarm, region, sensors, study, thumbgen, vscode, washi, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -99,6 +99,10 @@ fn main() {
         "niri-keybinds" => keybinds::run_niri_cli(rest),
         "hyprland-keybinds" => keybinds::run_hyprland_cli(rest),
         "osk-layout-labels" => osk::run_cli(rest),
+        "lyrics" => lyrics::run_cli(rest),
+        "study-decks" => study::run_cli(rest),
+        "compress-discord" => discord_compress::run_cli(rest),
+        "discover-provider-models" => aimodels::run_cli(rest),
         "usb-snapshot" => {
             println!("{}", devices::usb_snapshot());
             0
@@ -237,6 +241,10 @@ Usage:
   inir-accel hyprland-keybinds [--path <keybinds.conf>]
   inir-accel osk-layout-labels \"<layout description>\"
   inir-accel usb-snapshot
+  inir-accel lyrics <title> <artist> [album] [duration] [request id]
+  inir-accel study-decks list|download <id> [--no-open]
+  inir-accel compress-discord --input <video> [--output <mp4>] [--target-mb N] [--quiet] [--json] ...
+  inir-accel discover-provider-models --provider-id <id> --kind <kind> --models-url <url> --chat-endpoint <url> ...
   inir-accel game-performance-monitor --pid <pid> [--watch] [--interval-ms N] [--log-dir <dir>]... [--log-file <csv>]
   inir-accel ipc-probe
   inir-accel detect-sensors [--sysfs /sys]

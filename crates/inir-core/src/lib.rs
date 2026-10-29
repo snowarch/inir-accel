@@ -2,10 +2,12 @@
 //! This code was written by: Hikari.
 #![recursion_limit = "512"]
 
+pub mod aimodels;
 pub mod apps;
 pub mod claude_theme;
 pub mod daemons;
 pub mod devices;
+pub mod discord_compress;
 pub mod gameperf;
 pub mod gojson;
 pub mod gojsonv;
@@ -13,13 +15,16 @@ pub mod gomath;
 pub mod gotheme;
 pub mod helpers;
 pub mod keybinds;
+pub mod lyrics;
 pub mod material;
+pub mod net;
 pub mod opencode;
 pub mod osk;
 pub mod prewarm;
 pub mod pyrt;
 pub mod region;
 pub mod sensors;
+pub mod study;
 pub mod system24;
 pub mod terminals;
 pub mod thumbgen;
