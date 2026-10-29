@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{addplugin, aimodels, apps, daemons, devices, discord_compress, family_switch, findregions, gameperf, helpers, innertube, keybinds, lyrics, material, opencode, osk, pear, prewarm, region, sddm, sensors, study, thumbgen, voice, vscode, washi, ytrate, zed};
+use inir_core::{addplugin, aimodels, apps, daemons, devices, discord_compress, family_switch, findregions, gameperf, helpers, inifile, innertube, keybinds, lyrics, material, mpvwait, opencode, osk, pear, prewarm, region, sddm, sensors, spicetify, study, thumbgen, voice, vscode, washi, ytrate, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -111,6 +111,10 @@ fn main() {
         "sddm-sync" => sddm::run_cli(rest),
         "add-plugin" => addplugin::run_cli(rest),
         "find-regions" => findregions::run_cli(rest),
+        "spicetify-reload" => spicetify::run_reload(rest),
+        "spicetify-block" => spicetify::run_block(rest),
+        "ini-set" => inifile::run_cli(rest),
+        "mpv-wait" => mpvwait::run_cli(rest),
         "usb-snapshot" => {
             println!("{}", devices::usb_snapshot());
             0
@@ -260,6 +264,10 @@ Usage:
   inir-accel sddm-sync
   inir-accel add-plugin --url URL [--name NAME] [--icon ICON]
   inir-accel find-regions [-i IMAGE] [--min-width N] [--min-height N] [--max-width N] [--max-height N] [--single] [--hyprctl] ...
+  inir-accel spicetify-reload <port>
+  inir-accel spicetify-block <css-file> <bridge|playback|colors|tui> <block>
+  inir-accel ini-set <file> <section> <key> <value> [--replace-invalid]
+  inir-accel mpv-wait <socket> <reject-file> [seconds]
   inir-accel innertube <ping|search|home|radio|artist|album|playlist|library|rate|lyrics|song|auth-status|connect|...> [args]
   inir-accel game-performance-monitor --pid <pid> [--watch] [--interval-ms N] [--log-dir <dir>]... [--log-file <csv>]
   inir-accel ipc-probe
