@@ -8,7 +8,7 @@
 //!    workloads (`generate_colors_material.py`, `least_busy_region.py`, `thumbgen.py`, `detect_sensors.py`, `scan-plugins.py`)
 //!    in native Rust and transparently `exec`s `python3.real` for everything else.
 
-use inir_core::{aimodels, apps, daemons, devices, discord_compress, gameperf, helpers, innertube, keybinds, lyrics, material, opencode, osk, prewarm, region, sensors, study, thumbgen, voice, vscode, washi, zed};
+use inir_core::{aimodels, apps, daemons, devices, discord_compress, gameperf, helpers, innertube, keybinds, lyrics, material, opencode, osk, prewarm, region, sensors, study, thumbgen, voice, vscode, washi, ytrate, zed};
 use std::env;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -105,6 +105,7 @@ fn main() {
         "discover-provider-models" => aimodels::run_cli(rest),
         "transcribe-audio" => voice::run_cli(rest),
         "innertube" => innertube::run_cli(rest),
+        "ytmusic-rate" => ytrate::run_cli(rest),
         "usb-snapshot" => {
             println!("{}", devices::usb_snapshot());
             0
@@ -248,6 +249,7 @@ Usage:
   inir-accel compress-discord --input <video> [--output <mp4>] [--target-mb N] [--quiet] [--json] ...
   inir-accel discover-provider-models --provider-id <id> --kind <kind> --models-url <url> --chat-endpoint <url> ...
   inir-accel transcribe-audio --provider probe|local|groq|openai|gemini [--audio <wav>] [--model m] [--endpoint url] ...
+  inir-accel ytmusic-rate <like|unlike|check|setup-request|setup-poll|fetch-liked> [args]
   inir-accel innertube <ping|search|home|radio|artist|album|playlist|library|rate|lyrics|song|auth-status|connect|...> [args]
   inir-accel game-performance-monitor --pid <pid> [--watch] [--interval-ms N] [--log-dir <dir>]... [--log-file <csv>]
   inir-accel ipc-probe
