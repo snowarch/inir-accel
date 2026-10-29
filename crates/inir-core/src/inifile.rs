@@ -70,7 +70,14 @@ pub fn run_cli(args: &[String]) -> i32 {
         let _ = std::fs::create_dir_all(dir);
     }
     let text = match std::fs::read(path) {
-        Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+        Ok(b) => match String::from_utf8(b) {
+            Ok(t) => t,
+            // configparser refused these and left the file alone: so does this.
+            Err(_) => {
+                eprintln!("ini-set: {file} is not UTF-8, left as it is");
+                return 1;
+            }
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => {
             eprintln!("ini-set: {file}: {e}");
