@@ -86,6 +86,9 @@ case "$cmd" in
         ln -sf "$INSTALLED_BIN" "${HOME}/.local/bin/inir-accel"
         mkdir -p "$ACCEL_HOME"
         ln -sfn "$SHIM_DIR" "$ACCEL_HOME/dev"
+        # The version iNiR installed is put back by uninstall
+        before="$(readlink "$ACCEL_HOME/current" 2>/dev/null || true)"
+        [[ -n "$before" && "$before" != dev ]] && printf '%s\n' "$before" >"$ACCEL_HOME/current.before"
         ln -sfn dev "$ACCEL_HOME/current"
 
         # 2. Hook into iNiR's native state bin cache ($STATE_BIN_DIR/inir-*)
@@ -119,8 +122,15 @@ case "$cmd" in
             ln -sf "$REAL_PY" "${VENV_BIN_DIR}/python3"
             rm -f "${VENV_BIN_DIR}/python3.real"
         fi
-        [[ "$(readlink "$ACCEL_HOME/current")" == dev ]] && rm -f "$ACCEL_HOME/current"
-        rm -f "$ACCEL_HOME/dev"
+        if [[ "$(readlink "$ACCEL_HOME/current")" == dev ]]; then
+            before="$(cat "$ACCEL_HOME/current.before" 2>/dev/null || true)"
+            if [[ -n "$before" && -e "$ACCEL_HOME/$before" ]]; then
+                ln -sfn "$before" "$ACCEL_HOME/current"
+            else
+                rm -f "$ACCEL_HOME/current"
+            fi
+        fi
+        rm -f "$ACCEL_HOME/dev" "$ACCEL_HOME/current.before"
         echo "[inir-rust-plugin] Uninstalled shims and restored original venv python3 and Go binaries."
         ;;
     env)
