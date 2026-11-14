@@ -34,16 +34,18 @@ It sits next to the other pieces of iNiR and does not step on them:
 
 ## Numbers
 
-Measured on a live session, a 4K wallpaper and a folder of 350:
+inir-accel 0.1.4, 2026-11-14, on a Ryzen 7 5700G with Linux 7.3, each run from an empty cache:
 
-| What the shell does | Python/Go | inir-accel |
-| :--- | ---: | ---: |
-| widget legibility grid, cold | 501 ms | 126 ms |
-| same, cached | 501 ms | 14 ms |
-| Material colours from a wallpaper (with terminal and templates) | 872 ms | 198 ms |
-| 350 thumbnails | 3.5 to 12 s | 459 ms |
-| washi (3 schemes, 7 styles) | 18 to 25 ms | 12.7 ms |
-| sensors | 45 ms | 0.78 ms |
+| What the shell does | Input | Time |
+| :--- | :--- | ---: |
+| widget legibility grid | a 3840x2160 JPEG filling a 1920x1080 screen | 213 ms, 15 ms cached |
+| Material colours (palettes, terminal, 6 templates) | the same wallpaper | 183 ms |
+| thumbnails, 4 workers as the shell runs them | 350 wallpapers up to 10240 px wide (188 JPEG, 159 PNG, 3 WebP) | 7.2 s |
+| washi, a fresh install's palette | | 58 ms (the Go build inir had until 3.0: 59 ms, same bytes) |
+| sensors (hwmon and GPU) | | 0.76 ms |
+
+A JPEG is decoded at the smallest DCT step that still covers its thumbnail: the 188 JPEGs above take 3.8 s, 5.5 s on
+0.1.3. What is left is reading the file itself (a 20 MB JPEG takes about 250 ms alone).
 
 ## Using it
 
@@ -72,18 +74,18 @@ More in [docs/COLOR_WARMTH.md](docs/COLOR_WARMTH.md).
 
 ## Parity
 
-`test/parity.py` runs every case twice, once through the original (the shell's Go washi, the venv's real Python) and
-once through inir-accel the way the shell reaches it, each in its own HOME and XDG dirs, and compares stdout, stderr,
+`test/parity.py` runs every case twice, once through the original (the Go washi and theme generators built from the
+last iNiR commit that had them, Python ports through a v2.33 venv's real Python) and once through inir-accel the way the shell reaches it, each in its own HOME and XDG dirs, and compares stdout, stderr,
 exit code and every file written. A port that gives up and falls back to Python counts as delegated, not equal.
 
 ```sh
-python3 test/parity.py            # washi, material, region, opencode, vscode
+python3 test/parity.py            # all 12: washi, material, region, findregions, the theme generators, niriconfig...
 python3 test/parity.py washi      # one of them; --quick for a smaller corpus
 PARITY_SEED=2 PARITY_WASHI_N=3000 python3 test/parity.py washi
 ```
 
 `INIR_SHELL` points it at a shell checkout (default: the installed one, `~/.config/quickshell/inir`). The originals left
-the shell at 3.0, so comparing against them needs a v2.33 checkout and its venv (`INIR_VENV`).
+the shell at 3.0: the Go ones come from its git history, the Python ones need a v2.33 venv (`INIR_VENV`).
 
 ## License
 
