@@ -25,6 +25,8 @@ toml = { version = "0.8", features = ["preserve_order"] }
 libc = "0.2"
 regex = "1"
 png = "0.18"
+# Thumbnails: a JPEG decoded straight at 1/2, 1/4 or 1/8 of its size (the image crate decodes it whole)
+jpeg-decoder = { version = "0.3", default-features = false }
 
 [profile.release]
 lto = "thin"

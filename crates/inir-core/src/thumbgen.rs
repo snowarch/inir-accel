@@ -155,6 +155,27 @@ fn is_supported_media(path: &Path) -> bool {
     )
 }
 
+/// A JPEG decoded at the smallest 1/8 step that still covers the thumbnail, the IDCT doing the shrinking as
+/// gdk-pixbuf's loader does: a 4K wallpaper decodes 64 times fewer pixels. None for what it can't take (CMYK, 16 bit,
+/// a file that only claims to be a JPEG), which `image::open` then reads whole.
+fn open_jpeg_scaled(path: &Path, px_size: u32) -> Option<image::DynamicImage> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if ext != "jpg" && ext != "jpeg" {
+        return None;
+    }
+    let mut dec = jpeg_decoder::Decoder::new(io::BufReader::new(fs::File::open(path).ok()?));
+    let side = px_size.min(u32::from(u16::MAX)) as u16;
+    dec.scale(side, side).ok()?;
+    let pixels = dec.decode().ok()?;
+    let info = dec.info()?;
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => image::RgbImage::from_raw(w, h, pixels).map(image::DynamicImage::ImageRgb8),
+        jpeg_decoder::PixelFormat::L8 => image::GrayImage::from_raw(w, h, pixels).map(image::DynamicImage::ImageLuma8),
+        _ => None,
+    }
+}
+
 fn is_video(path: &Path) -> bool {
     let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
         return false;
@@ -193,7 +214,7 @@ pub fn make_thumbnail_one(fpath: &Path, size_name: &str) -> bool {
     let px_size = pixel_size_for(size_name);
 
     if !is_video(fpath) {
-        if let Ok(img) = image::open(fpath) {
+        if let Some(img) = open_jpeg_scaled(fpath, px_size).or_else(|| image::open(fpath).ok()) {
             let thumb = img.resize(px_size, px_size, FilterType::Triangle);
             let tmp_path = thumb_path.with_extension(format!("tmp.{}.png", std::process::id()));
             if save_tagged(&thumb, &tmp_path, fpath).is_ok() {
@@ -335,5 +356,22 @@ mod tests {
         assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
         let p = get_thumbnail_path("/home/user/Pictures/Wallpapers/my wall (1).png", "large");
         assert!(p.to_string_lossy().ends_with(".png"));
+    }
+
+    #[test]
+    fn jpeg_decodes_at_the_step_that_covers_the_thumbnail() {
+        let dir = std::env::temp_dir().join(format!("inir-thumbgen-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let jpg = dir.join("wall.jpg");
+        image::RgbImage::from_pixel(1024, 512, image::Rgb([40, 90, 160])).save(&jpg).unwrap();
+        // 1/8 gives 128x64, short of 256 on both sides; 1/4 gives 256x128.
+        let img = open_jpeg_scaled(&jpg, 256).expect("scaled decode");
+        assert_eq!((img.width(), img.height()), (256, 128));
+        let png = dir.join("wall.png");
+        image::RgbImage::from_pixel(8, 8, image::Rgb([0, 0, 0])).save(&png).unwrap();
+        assert!(open_jpeg_scaled(&png, 256).is_none());
+        fs::write(dir.join("fake.jpg"), b"not a jpeg").unwrap();
+        assert!(open_jpeg_scaled(&dir.join("fake.jpg"), 256).is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 }
