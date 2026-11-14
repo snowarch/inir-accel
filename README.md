@@ -15,7 +15,7 @@ It sits next to the other pieces of iNiR and does not step on them:
 ## What's inside
 
 - `crates/inir-core`: the work.
-  - `washi.rs`, `material.rs`: the washi solver (Version 30: `washi`, `iris`, `airisu`, `material:*`) and Material
+  - `washi.rs`, `material.rs`: the washi solver (Version 32: `washi`, `iris`, `airisu`, `material:*`) and Material
     colours from a wallpaper (HCT, the quantizer, all 9 schemes, terminal colours and templates), ported to the byte,
     with Go's float maths and JSON in `gomath.rs` and `gojson.rs`.
   - `region.rs`, `findregions.rs`, `thumbgen.rs`: the screen fits and `--luma-grid` the widgets read (cached in
@@ -62,8 +62,8 @@ scripts/activate-accelerators.sh uninstall   # puts the original python3 and Go 
 
 `install` copies the binary to `bin/inir-accel` (so cleaning `target/` doesn't unhook anything), links it at
 `~/.local/bin/inir-accel`, and points those helper names at it, keeping any originals beside them (`*.go.bak`, and
-`python3.real` on an install that still has the v2 venv). Everything it touches lives in `~/.local/state/quickshell/`
-and `~/.local/share/inir/accel/`, so `uninstall` leaves the shell exactly as it was. For `Inir.Native` in your own QML, `scripts/activate-accelerators.sh env` prints the
+`python3.real` on an install that still has the v2 venv). Everything it touches lives in `~/.local/state/quickshell/`,
+`~/.local/share/inir/accel/` and that one link, so `uninstall` leaves the shell exactly as it was. For `Inir.Native` in your own QML, `scripts/activate-accelerators.sh env` prints the
 `PATH` and `QML2_IMPORT_PATH` lines.
 
 Colours match the original by default. If you want the quiet greys (secondary text, outlines) to lean sandy with the

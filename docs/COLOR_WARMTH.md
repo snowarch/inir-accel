@@ -25,5 +25,5 @@ slider). Below `w = 0.01` nothing moves. AIRISU keeps its own ink (`fixedInk`), 
 The shell re-solves its palette when the request or the version changes, not when this option does: after flipping
 it, change any iRiS colour setting once (or delete `~/.local/state/quickshell/user/generated/iris-washi.json`).
 
-Material colours (`generate_colors_material.py`) have no warm option: until the Material port matches the original,
-every call runs the original Python.
+Material colours (`generate_colors_material.py`) have no warm option: the Rust port gives exactly what the original
+gives (`test/parity.py`, 1651 cases).
