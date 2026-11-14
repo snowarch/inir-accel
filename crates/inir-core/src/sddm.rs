@@ -92,12 +92,43 @@ fn read_colors(generated: &Path) -> Option<Vec<(&'static str, Json)>> {
     ])
 }
 
-fn read_appearance(config: &Json) -> String {
+/// A look's name as theme.conf may hold it: lowercase words, nothing that could open a line.
+fn look_name(v: &str) -> bool {
+    !v.is_empty() && v.len() <= 32 && v.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The look theme.conf names: the person's choice, or on auto the one the family declares in its manifest
+/// (`loginScreen.look` of `<shell>/modules/<family>/plugin.json`), else Classic. Main.qml maps a look it lacks to Classic.
+fn read_appearance(config: &Json, shell: &Path) -> String {
     let chosen = dig(config, &["lock", "loginScreen"]).map_or("auto".to_string(), pyrt::str_of);
-    if chosen == "classic" || chosen == "iris" {
+    if chosen != "auto" && look_name(&chosen) {
         return chosen;
     }
-    if matches!(config.get("panelFamily"), Some(Json::Str(f)) if f == "iris") { "iris" } else { "classic" }.to_string()
+    let family = config.get("panelFamily").map_or("ii".to_string(), pyrt::str_of);
+    if !look_name(&family) {
+        return "classic".to_string();
+    }
+    load(&shell.join("modules").join(&family).join("plugin.json"))
+        .and_then(|m| dig(&m, &["loginScreen", "look"]).map(pyrt::str_of))
+        .filter(|look| look_name(look))
+        .unwrap_or_else(|| if family == "iris" { "iris" } else { "classic" }.to_string())
+}
+
+/// What the Waffle login reads: its lock's blur, dim and clock, and the family's type.
+fn read_waffle(config: &Json) -> Vec<(&'static str, Json)> {
+    let get = |keys: &[&str], fallback: Json| dig(config, keys).cloned().unwrap_or(fallback);
+    let on = |keys: &[&str], fallback: bool| dig(config, keys).map_or(fallback, Json::truthy);
+    let dim = if on(&["waffles", "lock", "dim", "enable"], false) { get(&["waffles", "lock", "dim", "opacity"], Json::Float(0.3)) } else { Json::Int(0) };
+    let font = dig(config, &["waffles", "theming", "font", "family"]).filter(|v| v.truthy()).cloned().unwrap_or_else(|| s("Noto Sans"));
+    vec![
+        ("waffleFont", font),
+        ("waffleFontScale", get(&["waffles", "theming", "font", "scale"], Json::Int(1))),
+        ("waffleBlur", s(if on(&["waffles", "lock", "blur", "enable"], true) { "true" } else { "false" })),
+        ("waffleBlurRadius", get(&["waffles", "lock", "blur", "radius"], Json::Int(100))),
+        ("waffleDim", dim),
+        ("waffleClockStyle", get(&["waffles", "lock", "clock", "style"], s("default"))),
+        ("waffleClockPosition", get(&["waffles", "lock", "clock", "position"], s("center"))),
+    ]
 }
 
 /// What the iRiS login styles read, resolved for SDDM's own Qt: the iRiS palette and type, and which of the lock's
@@ -427,7 +458,7 @@ pub fn run_cli(_args: &[String]) -> i32 {
     // the shell's own config dir (Directories.shellConfig), a link to ~/.config/inir once that exists
     let config = load(&xdg("XDG_CONFIG_HOME", &home, ".config").join("illogical-impulse/config.json")).filter(|c| matches!(c, Json::Obj(_))).unwrap_or(Json::Obj(vec![]));
     let colors = read_colors(&generated);
-    let appearance = read_appearance(&config);
+    let appearance = read_appearance(&config, &crate::prewarm::shell_dir());
     let mut values: Vec<(&str, Json)> = vec![("appearance", s(&appearance))];
     values.extend(colors.iter().flatten().cloned());
     let shape = dig(&config, &["lock", "materialShapeChars"]).is_some_and(Json::truthy);
@@ -435,6 +466,7 @@ pub fn run_cli(_args: &[String]) -> i32 {
     let iris = read_iris(&config, colors.as_deref(), &generated);
     let custom = matches!(iris.iter().find(|(k, _)| *k == "irisSceneSource"), Some((_, Json::Str(v))) if v == "custom");
     values.extend(iris);
+    values.extend(read_waffle(&config));
     let own = dig(&config, &["iris", "lock", "scene", "path"]).filter(|v| v.truthy()).map_or(String::new(), pyrt::str_of);
     let own = own.strip_prefix("file://").unwrap_or(&own).to_string();
     let picture = if custom && update_picture(&assets, &own, "lock-picture.png") { "assets/lock-picture.png" } else { "" };
@@ -459,4 +491,43 @@ pub fn run_cli(_args: &[String]) -> i32 {
         copy_asset(&assets, face, "user-face.png");
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shell_with(family: &str, manifest: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("inir-sddm-look-{}-{family}", std::process::id()));
+        let dir = root.join("modules").join(family);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("plugin.json"), manifest).unwrap();
+        root
+    }
+
+    #[test]
+    fn appearance_follows_the_family_manifest_on_auto() {
+        let shell = shell_with("waffle", r#"{"id":"waffle","loginScreen":{"look":"waffle","reads":[]}}"#);
+        let config = |text: &str| py::json_loads(text).unwrap();
+        assert_eq!(read_appearance(&config(r#"{"panelFamily":"waffle"}"#), &shell), "waffle");
+        assert_eq!(read_appearance(&config(r#"{"panelFamily":"waffle","lock":{"loginScreen":"classic"}}"#), &shell), "classic");
+        assert_eq!(read_appearance(&config(r#"{"panelFamily":"ii"}"#), &shell), "classic");
+        // No manifest on disk: iRiS keeps its own look, everything else Classic.
+        assert_eq!(read_appearance(&config(r#"{"panelFamily":"iris"}"#), &shell), "iris");
+        // A value that could open a line in theme.conf is never written.
+        assert_eq!(read_appearance(&config(r#"{"panelFamily":"ii","lock":{"loginScreen":"x\nbackground=/etc"}}"#), &shell), "classic");
+        let _ = fs::remove_dir_all(&shell);
+    }
+
+    #[test]
+    fn waffle_values_keep_zero_and_default_the_font() {
+        let config = py::json_loads(r#"{"waffles":{"lock":{"blur":{"enable":false,"radius":0},"dim":{"enable":true,"opacity":0.5}},"theming":{"font":{"family":""}}}}"#).unwrap();
+        let values: Vec<(&str, String)> = read_waffle(&config).iter().map(|(k, v)| (*k, pyrt::str_of(v))).collect();
+        let value = |key: &str| values.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone()).unwrap();
+        assert_eq!(value("waffleFont"), "Noto Sans");
+        assert_eq!(value("waffleBlur"), "false");
+        assert_eq!(value("waffleBlurRadius"), "0");
+        assert_eq!(value("waffleDim"), "0.5");
+        assert_eq!(value("waffleClockPosition"), "center");
+    }
 }
