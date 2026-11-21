@@ -2,8 +2,12 @@
 //! request gives the same bytes (test/parity.py holds the two together). Every role of every scheme (dark, ink, light)
 //! comes from what the person chose and the seeds the wallpaper and the colour theme give.
 //!
-//! The one place this port may differ is opt-in: `Options::warm_neutrals` gives the quiet neutrals (secondary and
-//! tertiary text, the apps' variant and outline) a sand undertone. Off, the output is the Go solver's.
+//! The places this port may differ are opt-in. `Options::warm_neutrals` gives the quiet neutrals (secondary and
+//! tertiary text, the apps' variant and outline) a sand undertone. A request that sends the wallpaper's colours
+//! (`seeds.colours`) takes its accent, highlight and widget data from the wallpaper's colour families
+//! (`colour_families`), keeps a highlight 30° or more from the accent in every language, reads `vibrance` as
+//! Intensity (every colour's chroma alike) and gives a wallpaper with no colour a grey. Without either, the output is
+//! the Go solver's.
 
 use crate::gojson::{self, Value};
 use crate::gomath;
@@ -225,6 +229,62 @@ fn hex_lch(hex: &str) -> LCH {
     seed_lch(hex).unwrap_or_default()
 }
 
+/// The wallpaper's colour families. Each colour weighs by its chroma (C^1.5: a small vivid patch outweighs a wide
+/// dull one, the reason a pink and teal wallpaper read yellow by area) in bands of 15°, each band smoothed over its
+/// neighbours. Up to three families, 45° or more apart, each at least a fifth of the first; a family is its colours'
+/// chroma-weighted hue at their upper chroma (the 75th percentile). Empty when under 4 % of the wallpaper has colour.
+pub fn colour_families(colours: &[String]) -> Vec<LCH> {
+    let all: Vec<LCH> = colours.iter().filter_map(|h| seed_lch(h)).collect();
+    let mut weight = [0.0f64; 24];
+    let mut members: Vec<Vec<LCH>> = vec![Vec::new(); 24];
+    for c in &all {
+        if c.c < 0.04 || c.l < 0.18 || c.l > 0.96 {
+            continue;
+        }
+        let k = (c.h.rem_euclid(360.0) / 15.0) as usize % 24;
+        weight[k] += c.c.powf(1.5);
+        members[k].push(*c);
+    }
+    let colourful: usize = members.iter().map(Vec::len).sum();
+    if all.is_empty() || (colourful as f64) < 0.04 * all.len() as f64 {
+        return Vec::new();
+    }
+    let near = |k: usize| [(k + 23) % 24, k, (k + 1) % 24];
+    let band: Vec<f64> = (0..24).map(|k| weight[(k + 23) % 24] * 0.5 + weight[k] + weight[(k + 1) % 24] * 0.5).collect();
+    let mut order: Vec<usize> = (0..24).collect();
+    order.sort_by(|a, b| band[*b].total_cmp(&band[*a]));
+    let mut picked: Vec<usize> = Vec::new();
+    for k in order {
+        if band[k] <= 0.0 || picked.len() == 3 {
+            break;
+        }
+        let apart = picked.iter().all(|&f| {
+            let d = k.abs_diff(f);
+            d.min(24 - d) >= 3
+        });
+        if apart && picked.first().map_or(true, |&f| band[k] >= 0.2 * band[f]) {
+            picked.push(k);
+        }
+    }
+    picked
+        .into_iter()
+        .map(|k| {
+            let m: Vec<LCH> = near(k).iter().flat_map(|&i| members[i].iter().copied()).collect();
+            let (x, y) = m.iter().fold((0.0, 0.0), |(x, y), c| (x + c.c * c.h.to_radians().cos(), y + c.c * c.h.to_radians().sin()));
+            let mut cs: Vec<f64> = m.iter().map(|c| c.c).collect();
+            cs.sort_by(f64::total_cmp);
+            let l = m.iter().map(|c| c.l).sum::<f64>() / m.len() as f64;
+            LCH { l, c: cs[(cs.len() * 3 / 4).min(cs.len() - 1)], h: y.atan2(x).to_degrees().rem_euclid(360.0) }
+        })
+        .collect()
+}
+
+/// A hue turned to sit 40° from another, on the side it leans to: an analogous neighbour.
+fn away(c: LCH, from: f64) -> LCH {
+    let lean = (c.h - from + 540.0) % 360.0 - 180.0;
+    LCH { h: (from + if lean < 0.0 { -40.0 } else { 40.0 } + 360.0) % 360.0, ..c }
+}
+
 // ---------------------------------------------------------------- the request
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -234,6 +294,8 @@ pub struct Seeds {
     pub secondary: String,
     pub tertiary: String,
     pub background: String,
+    /// The wallpaper's colours, each an equal share of its pixels (a median cut). `None` is the Go solver's request.
+    pub colours: Option<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -371,6 +433,15 @@ pub fn decode_request(raw: &str) -> Result<Request, String> {
                 keep(set_str(fields, "secondary", &mut req.seeds.secondary));
                 keep(set_str(fields, "tertiary", &mut req.seeds.tertiary));
                 keep(set_str(fields, "background", &mut req.seeds.background));
+                for cv in gojson::fields(fields, "colours") {
+                    match cv {
+                        Value::Null => req.seeds.colours = None,
+                        Value::Array(items) => {
+                            req.seeds.colours = Some(items.iter().filter_map(|i| if let Value::Str(s) = i { Some(s.clone()) } else { None }).collect())
+                        }
+                        other => keep(Err(format!("json: cannot unmarshal {} into Go struct field Seeds.seeds.colours of type []string", gojson::kind(other)))),
+                    }
+                }
             }
             other => keep(Err(format!("json: cannot unmarshal {} into Go struct field Request.seeds", gojson::kind(other)))),
         }
@@ -456,6 +527,10 @@ pub fn encode_request(req: &Request) -> String {
         gojson::write_str(&mut o, k);
         o.push(':');
         gojson::write_str(&mut o, v);
+    }
+    if let Some(colours) = &req.seeds.colours {
+        o.push_str(",\"colours\":");
+        write_list(&mut o, colours);
     }
     o.push_str("}}");
     o
@@ -1067,6 +1142,8 @@ struct Solver<'a> {
     grounds: Vec<RGB>,
     colour: f64,
     opts: Options,
+    /// The wallpaper's colour families, from a shell that sent its colours; `None` keeps the Go solve.
+    families: Option<Vec<LCH>>,
 }
 
 /// What a paper body can become as glass: the frost 0.1 (gamma) under the paper, and a group on that.
@@ -1089,7 +1166,12 @@ impl Solver<'_> {
     }
 
     fn accent(&self, seed: LCH) -> RGB {
-        let c = clamp_f(seed.c, self.s.accent_c[0], self.s.accent_c[1]) * self.colour;
+        // A wallpaper with no colour gives a grey (`grey`), never lifted to the language's least accent chroma.
+        let c = if seed.c < 0.03 && self.families.is_some() {
+            seed.c * self.colour
+        } else {
+            clamp_f(seed.c, self.s.accent_c[0], self.s.accent_c[1]) * self.colour
+        };
         let papers = self.ramp.all();
         let on_colour = self.lang.on_colour;
         let mut far = papers[0];
@@ -1140,6 +1222,9 @@ impl Solver<'_> {
     }
 
     fn highlight(&self, seed: LCH) -> RGB {
+        if seed.c < 0.03 && self.families.is_some() {
+            return self.mark(seed.h, seed.c * self.colour, 0.0);
+        }
         let c = clamp_f(seed.c, self.s.mark_c * 0.7, self.s.mark_c * 1.15) * self.colour;
         if self.lang.pigments {
             return solve(
@@ -1189,17 +1274,28 @@ impl Solver<'_> {
         let seeds = &self.req.seeds;
         match choice {
             "custom" => return self.on_wheel(hsl(hue, 0.7, 0.5).lch()),
-            "wallpaper" => {
-                if let Some(c) = pick(&[&seeds.wallpaper, &seeds.primary]) {
-                    return c;
+            "wallpaper" => match &self.families {
+                // The wallpaper's first colour family; a wallpaper with no colour gives its grey (a Design its own).
+                Some(f) => {
+                    if let Some(c) = f.first() {
+                        return self.on_wheel(*c);
+                    }
+                    if self.lang.wheel.is_none() {
+                        return self.grey();
+                    }
                 }
-            }
+                None => {
+                    if let Some(c) = pick(&[&seeds.wallpaper, &seeds.primary]) {
+                        return c;
+                    }
+                }
+            },
             "theme" => {
                 if let Some(c) = pick(&[&seeds.primary]) {
                     return c;
                 }
             }
-            "wallpaperHighlight" => {
+            "wallpaperHighlight" if self.families.is_none() => {
                 if let Some(c) = pick(&[&seeds.secondary, &seeds.wallpaper, &seeds.primary]) {
                     return self.on_wheel(LCH { l: c.l, c: gmax(c.c, 0.12), h: c.h });
                 }
@@ -1222,6 +1318,36 @@ impl Solver<'_> {
             None => c,
             Some(w) => pigment_of(w, c),
         }
+    }
+
+    /// What a wallpaper with no colour gives: its own faint cast, or the language's neutral.
+    fn grey(&self) -> LCH {
+        match seed_lch(&self.req.seeds.wallpaper).filter(|c| c.c >= 0.008) {
+            Some(c) => LCH { l: c.l, c: gmin(c.c, 0.02), h: c.h },
+            None => LCH { l: 0.5, c: 0.0, h: self.lang.neutral_hue },
+        }
+    }
+
+    /// The highlight a wallpaper gives beside the accent: its first colour family 30° or more from the accent's hue,
+    /// else its first family turned 40° away, else its grey. `None` without the wallpaper's colours, and for a
+    /// Design's wheel over a wallpaper with no colour (it keeps the Design's own).
+    fn wallpaper_highlight(&self, al: LCH) -> Option<LCH> {
+        let f = self.families.as_ref()?;
+        if let Some(c) = f.iter().find(|c| al.c < 0.03 || hue_distance(c.h, al.h) >= 30.0) {
+            return Some(self.on_wheel(*c));
+        }
+        if let Some(c) = f.first() {
+            return Some(self.on_wheel(away(*c, al.h)));
+        }
+        self.lang.wheel.is_none().then(|| self.grey())
+    }
+
+    /// A highlight from a source (the colour theme) 30° or more from the accent: one closer turns 40° away.
+    fn apart(&self, c: LCH, al: LCH) -> LCH {
+        if self.families.is_some() && c.c >= 0.03 && al.c >= 0.03 && hue_distance(c.h, al.h) < 30.0 {
+            return self.on_wheel(away(c, al.h));
+        }
+        c
     }
 
     /// The same palette in Material's role names, for the app themes.
@@ -1405,14 +1531,18 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
     let lang = scheme_language(req, name);
     let s = lang.spec_of(name);
     let tune = req.tune_of(name);
-    let colour = tune.colour.map_or(1.0, |c| clamp_f(c / 100.0, 0.0, 1.0));
+    let families = req.seeds.colours.as_deref().map(colour_families);
+    // Intensity, for a shell that sends the wallpaper's colours: one step from soft (0.7) through balanced (1, at the
+    // default 60 %) to vivid (1.3) that the accent, the highlight, the fills, the status colours and the widgets take alike.
+    let intensity = if families.is_some() { 0.55 + 0.75 * clamp_f(req.vibrance, 0.0, 1.0) } else { 1.0 };
+    let colour = tune.colour.map_or(1.0, |c| clamp_f(c / 100.0, 0.0, 1.0)) * intensity;
     let widgets = tune.widgets.map_or(s.widgets, |w| clamp_f(w / 100.0, 0.4, 1.6));
     let mut material = req.material.as_str();
     if s.material(material).is_none() && material != "wallpaper" && material != "theme" {
         material = "black";
     }
     let ramp = lang.ramp(s, paper_of(lang, s, material, req));
-    let mut v = Solver { lang, s, req, ramp, grounds: ramp.all(), colour, opts };
+    let mut v = Solver { lang, s, req, ramp, grounds: ramp.all(), colour, opts, families };
     let mut p = Palette { dark: s.dark, material: material.to_string(), ..Palette::default() };
     p.surface = v.grounds[0].hex();
     p.surface_high = v.grounds[1].hex();
@@ -1468,14 +1598,17 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
     p.on_accent_container = v.on_container(cont, al.h, gmin(0.12, al.c)).hex();
 
     let highlight_choice = req.highlight.as_str();
+    let wallpaper_highlight =
+        v.wallpaper_highlight(al).unwrap_or_else(|| v.seed_of("wallpaperHighlight", 0.0, lang.highlight_seeds, "orange"));
+    let theme_highlight = v.apart(v.seed_of("themeHighlight", 0.0, lang.highlight_seeds, "orange"), al);
     let (mut highlight, mut highlight_seed) = match highlight_choice {
         "accent" => (accent, accent_seed),
-        "wallpaper" => (RGB::default(), v.seed_of("wallpaperHighlight", 0.0, lang.highlight_seeds, "orange")),
-        "theme" => (RGB::default(), v.seed_of("themeHighlight", 0.0, lang.highlight_seeds, "orange")),
+        "wallpaper" => (RGB::default(), wallpaper_highlight),
+        "theme" => (RGB::default(), theme_highlight),
         "custom" => (RGB::default(), v.on_wheel(hsl(req.highlight_hue, 0.92, 0.58).lch())),
         other => (RGB::default(), v.seed_of(other, 0.0, lang.highlight_seeds, "orange")),
     };
-    if highlight_choice == "wallpaper" && matches!(lang.id, LangId::Washi) && hue_distance(highlight_seed.h, al.h) < 30.0 {
+    if v.families.is_none() && highlight_choice == "wallpaper" && matches!(lang.id, LangId::Washi) && hue_distance(highlight_seed.h, al.h) < 30.0 {
         // A wallpaper of one hue gave accent and highlight the same red: the highlight takes the mineral pigment
         // farthest from the accent, as the widgets' second series does.
         let mut far = 0.0;
@@ -1570,7 +1703,7 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
 
     // Data in widgets: three colours of one band, the widget colour and vibrance setting their strength.
     let vib = clamp_f(req.vibrance, 0.0, 1.0);
-    let k = widgets / s.widgets * (0.8 + 0.4 * vib);
+    let k = widgets / s.widgets * if v.families.is_some() { intensity } else { 0.8 + 0.4 * vib };
     let data = |h: f64, c: f64, dl: f64| v.mark(h, gmin(s.mark_c * 1.3, c * k), dl);
     let hue_or = |hex: &str, fallback: f64| seed_lch(hex).filter(|c| c.c >= 0.02).map_or(fallback, |c| c.h);
     let ph = hue_or(&req.seeds.primary, al.h);
@@ -1594,7 +1727,23 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
     let hl = highlight.lch();
     let id_h = |n: &str| parse_hex(p.identity.get(n).map(String::as_str).unwrap_or("")).unwrap_or_default().lch().h;
     let (blue_h, orange_h, teal_h) = (id_h("blue"), id_h("orange"), id_h("teal"));
-    p.widgets.insert("wallpaper".into(), hexes(&[data(ph, s.mark_c, 0.0), data(th, s.mark_c, 0.0), third]));
+    // From the wallpaper's colours: its own families, each at its own chroma inside the band (a second or third
+    // missing: the first's neighbours, 40° to each side); a wallpaper with no colour, its grey at three lightnesses.
+    let wallpaper_data = match &v.families {
+        None => [data(ph, s.mark_c, 0.0), data(th, s.mark_c, 0.0), third],
+        Some(f) if f.is_empty() => {
+            let g = v.grey();
+            [data(g.h, g.c, 0.0), data(g.h, g.c * 0.7, if s.dark { 0.12 } else { -0.16 }), data(g.h, g.c * 0.5, if s.dark { -0.1 } else { 0.1 })]
+        }
+        Some(f) => {
+            let first = f[0];
+            let second = f.get(1).copied().unwrap_or(LCH { h: (first.h + 40.0) % 360.0, ..first });
+            let last = f.get(2).copied().unwrap_or(LCH { h: (first.h + 320.0) % 360.0, ..first });
+            let band = |x: LCH| clamp_f(x.c, s.mark_c * 0.6, s.mark_c * 1.15);
+            [data(first.h, band(first), 0.0), data(second.h, band(second), 0.0), data(last.h, band(last), 0.0)]
+        }
+    };
+    p.widgets.insert("wallpaper".into(), hexes(&wallpaper_data));
     p.widgets.insert("system".into(), hexes(&[data(al.h, s.mark_c, 0.0), data(hl.h, s.mark_c, 0.0), data(150.0, s.mark_c * 0.9, 0.0)]));
     p.widgets.insert("spectrum".into(), hexes(&[data(blue_h, s.mark_c, 0.0), data(orange_h, s.mark_c, 0.0), data(teal_h, s.mark_c, 0.0)]));
     p.widgets.insert(
@@ -1635,8 +1784,8 @@ fn build(req: &Request, name: &str, opts: Options) -> Palette {
     for (n, hex) in lang.highlight_seeds {
         p.highlights.insert(n.to_string(), v.highlight(hex_lch(hex)).hex());
     }
-    p.highlights.insert("wallpaper".into(), v.highlight(v.seed_of("wallpaperHighlight", 0.0, lang.highlight_seeds, "orange")).hex());
-    p.highlights.insert("theme".into(), v.highlight(v.seed_of("themeHighlight", 0.0, lang.highlight_seeds, "orange")).hex());
+    p.highlights.insert("wallpaper".into(), v.highlight(wallpaper_highlight).hex());
+    p.highlights.insert("theme".into(), v.highlight(theme_highlight).hex());
     p.highlights.insert("custom".into(), v.highlight(hsl(req.highlight_hue, 0.92, 0.58).lch()).hex());
     p.apps = v.apps(&p, accent, highlight, danger, cont);
     p
@@ -2015,6 +2164,9 @@ pub struct Output {
     pub schemes: BTreeMap<String, Palette>,
     /// `None` is Go's nil map (`"styles":null`, the palette alone).
     pub styles: Option<BTreeMap<String, BTreeMap<String, StyleSwatch>>>,
+    /// The wallpaper's colour families, for a request that sent its colours: also how a shell tells this answer
+    /// from one an older solver gave the same request.
+    pub families: Option<Vec<String>>,
 }
 
 fn style_ids() -> Vec<String> {
@@ -2029,7 +2181,8 @@ pub fn solve_schemes(req: &Request, key: &str) -> Output {
 }
 
 pub fn solve_schemes_with(req: &Request, key: &str, opts: Options) -> Output {
-    let mut out = Output { version: VERSION, request: key.to_string(), ..Output::default() };
+    let families = req.seeds.colours.as_deref().map(|c| colour_families(c).iter().map(|f| f.rgb().hex()).collect());
+    let mut out = Output { version: VERSION, request: key.to_string(), families, ..Output::default() };
     for s in &language_of(req).schemes {
         out.schemes.insert(s.name.to_string(), build(req, s.name, opts));
     }
@@ -2087,6 +2240,10 @@ impl Output {
         let mut o = String::with_capacity(32 * 1024);
         o.push_str(&format!("{{\"version\":{},\"request\":", self.version));
         gojson::write_str(&mut o, &self.request);
+        if let Some(f) = &self.families {
+            o.push_str(",\"families\":");
+            write_list(&mut o, f);
+        }
         o.push_str(",\"schemes\":{");
         for (i, (k, p)) in self.schemes.iter().enumerate() {
             if i > 0 {
@@ -2311,4 +2468,85 @@ pub fn run_cli(args: &[String], opts: Options) -> i32 {
     use std::io::Write;
     let _ = std::io::stdout().write_all(data.as_bytes());
     0
+}
+
+#[cfg(test)]
+mod family_tests {
+    use super::*;
+
+    fn hex_of(l: f64, c: f64, h: f64) -> String {
+        LCH { l, c, h }.rgb().hex()
+    }
+    fn many(n: usize, l: f64, c: f64, h: f64) -> Vec<String> {
+        vec![hex_of(l, c, h); n]
+    }
+    fn asking(colours: &[String], accent: &str, highlight: &str, vibrance: f64) -> Request {
+        let mut r = default_request();
+        r.accent = accent.into();
+        r.highlight = highlight.into();
+        r.vibrance = vibrance;
+        r.seeds.colours = Some(colours.to_vec());
+        r
+    }
+
+    #[test]
+    fn chroma_outweighs_area() {
+        // A wide dull olive under a small vivid pink and a teal: the pink leads, the olive does not take the accent.
+        let mut colours = many(40, 0.55, 0.05, 105.0);
+        colours.extend(many(14, 0.65, 0.17, 350.0));
+        colours.extend(many(10, 0.6, 0.11, 200.0));
+        let f = colour_families(&colours);
+        assert_eq!(f.len(), 3, "{f:?}");
+        assert!(hue_distance(f[0].h, 350.0) < 8.0, "{f:?}");
+        let out = solve_schemes(&asking(&colours, "wallpaper", "wallpaper", 0.6), "k");
+        let accent = hex_lch(&out.schemes["dark"].accent);
+        assert!(hue_distance(accent.h, 350.0) < 15.0, "{accent:?}");
+        assert_eq!(out.families.as_ref().map(Vec::len), Some(3));
+    }
+
+    #[test]
+    fn a_grey_wallpaper_gives_a_grey() {
+        let mut colours = many(32, 0.3, 0.004, 250.0);
+        colours.extend(many(32, 0.8, 0.006, 80.0));
+        assert!(colour_families(&colours).is_empty());
+        let out = solve_schemes(&asking(&colours, "wallpaper", "wallpaper", 0.6), "k");
+        for (name, p) in &out.schemes {
+            assert!(hex_lch(&p.accent).c < 0.03, "{name} accent {}", p.accent);
+            assert!(hex_lch(&p.highlight).c < 0.03, "{name} highlight {}", p.highlight);
+        }
+    }
+
+    #[test]
+    fn one_hue_keeps_the_highlight_apart() {
+        let colours = many(64, 0.6, 0.15, 30.0);
+        let out = solve_schemes(&asking(&colours, "wallpaper", "wallpaper", 0.6), "k");
+        for (name, p) in &out.schemes {
+            let (a, h) = (hex_lch(&p.accent), hex_lch(&p.highlight));
+            assert!(hue_distance(a.h, h.h) >= 25.0, "{name}: {} {}", p.accent, p.highlight);
+        }
+    }
+
+    #[test]
+    fn intensity_moves_every_colour() {
+        let colours = many(64, 0.6, 0.15, 150.0);
+        let at = |v: f64| {
+            let out = solve_schemes(&asking(&colours, "wallpaper", "wallpaper", v), "k");
+            let p = &out.schemes["dark"];
+            (hex_lch(&p.accent).c, hex_lch(&p.highlight).c, hex_lch(&p.widgets["wallpaper"][0]).c)
+        };
+        let (soft, even, vivid) = (at(0.2), at(0.6), at(1.0));
+        assert!(soft.0 < even.0 && even.0 < vivid.0, "accent {soft:?} {even:?} {vivid:?}");
+        assert!(soft.1 < even.1 && even.1 < vivid.1, "highlight {soft:?} {even:?} {vivid:?}");
+        assert!(soft.2 < even.2 && even.2 < vivid.2, "widgets {soft:?} {even:?} {vivid:?}");
+    }
+
+    #[test]
+    fn colours_travel_through_the_request() {
+        let req = decode_request(r##"{"seeds":{"colours":["#ff0000","#00ff00"]}}"##).unwrap();
+        assert_eq!(req.seeds.colours, Some(vec!["#ff0000".to_string(), "#00ff00".to_string()]));
+        assert!(encode_request(&req).ends_with(r##","colours":["#ff0000","#00ff00"]}}"##));
+        assert_eq!(decode_request("{}").unwrap().seeds.colours, None);
+        assert!(!encode_request(&default_request()).contains("colours"));
+        assert!(solve_schemes(&default_request(), "k").families.is_none());
+    }
 }
