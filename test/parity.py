@@ -30,6 +30,8 @@ HOME = Path.home()
 SHELL = Path(os.environ.get("INIR_SHELL", HOME / ".config/quickshell/inir"))
 VENV = Path(os.environ.get("INIR_VENV", HOME / ".local/state/quickshell/.venv"))
 REAL_PY = VENV / "bin/python3.real"
+# the shell's matugen config: defaults/ since 11-02, dots/.config/ before
+MATUGEN = next((p for p in (SHELL / "defaults/matugen", SHELL / "dots/.config/matugen") if p.is_dir()), SHELL / "defaults/matugen")
 # cargo knows where its builds go (a .cargo/config.toml may move them off the repo)
 def cargo_target() -> Path:
     try:
@@ -407,7 +409,7 @@ def material_suite(work: Path, quick: bool, jobs: int):
     stub = work / "no-fallback"
     stub.write_text("#!/bin/sh\necho 'inir-accel fell back to real python' >&2\nexit 99\n")
     stub.chmod(0o755)
-    matugen = SHELL / "dots/.config/matugen"
+    matugen = MATUGEN
     cases = list(enumerate(material_cases(work, quick)))
 
     def one(case):
@@ -902,7 +904,7 @@ ZED_ODD = ["{{colors.nonexistent_thing.dark.hex}}", "{{colors.on_weird.light.hex
 
 def zed_template(rng: random.Random, base: Path) -> str:
     """The shell's Zed template, none, or one bent out of shape: odd placeholders and values, themes that don't fit."""
-    real = SHELL / "dots/.config/matugen/templates/zed-colors.json"
+    real = MATUGEN / "templates/zed-colors.json"
     r = rng.random()
     if r < 0.4:
         return str(real)
