@@ -23,10 +23,10 @@ const BROWSERS: [&str; 5] = ["firefox", "zen-browser", "chromium", "brave", "viv
 
 fn action_name(action: &str) -> Option<&'static str> {
     Some(match action {
-        "toggle-overview" => "Niri Overview",
+        "toggle-overview" => "Niri overview",
         "quit" => "Quit Niri",
         "toggle-keyboard-shortcuts-inhibit" => "Toggle shortcuts inhibit",
-        "power-off-monitors" => "Power off monitors",
+        "power-off-monitors" => "Turn screens off",
         "show-hotkey-overlay" => "Niri hotkey overlay",
         "close-window" => "Close window",
         "maximize-column" => "Maximize column",
@@ -67,13 +67,13 @@ fn action_name(action: &str) -> Option<&'static str> {
         "move-column-to-monitor-down" => "Move to monitor down",
         "focus-workspace-up" => "Previous workspace",
         "focus-workspace-down" => "Next workspace",
-        "move-column-to-workspace-up" => "Move to prev workspace",
+        "move-column-to-workspace-up" => "Move to previous workspace",
         "move-column-to-workspace-down" => "Move to next workspace",
         "move-workspace-up" => "Move workspace up",
         "move-workspace-down" => "Move workspace down",
         "screenshot" => "Screenshot",
-        "screenshot-screen" => "Screenshot screen",
-        "screenshot-window" => "Screenshot window",
+        "screenshot-screen" => "Screenshot the screen",
+        "screenshot-window" => "Screenshot the window",
         _ => return None,
     })
 }
@@ -82,18 +82,27 @@ fn ipc_name(target: &str, func: &str) -> Option<&'static str> {
     Some(match (target, func) {
         ("altSwitcher", "next") => "Next window",
         ("altSwitcher", "previous") => "Previous window",
-        ("overlay", "toggle") => "iNiR Overlay",
-        ("overview", "toggle") => "iNiR Overview",
+        ("overlay", "toggle") => "iNiR overlay",
+        ("overview", "toggle") => "iNiR overview",
         ("clipboard", "toggle") => "Clipboard",
         ("lock", "activate") => "Lock screen",
-        ("region", "screenshot") => "Screenshot region",
-        ("region", "ocr") => "OCR region",
-        ("region", "search") => "Reverse image search",
+        ("lock", "focus") => "Focus the lock screen",
+        ("region", "menu") => "Region tools",
+        ("region", "screen") => "Screenshot the screen",
+        ("region", "window") => "Screenshot the window",
+        ("region", "recordWithSound") => "Record a region with sound",
+        ("region", "record") => "Record a region",
+        ("region", "screenshot") => "Screenshot a region",
+        ("region", "ocr") => "Read text in a region",
+        ("region", "search") => "Search a region by image",
         ("wallpaperSelector", "toggle") => "Wallpaper selector",
         ("settings", "open") => "Settings",
+        ("taskview", "toggle") => "Task view",
+        ("search", "toggle") => "Search",
+        ("equalizer", "toggle") => "Equalizer",
         ("cheatsheet", "toggle") => "Cheatsheet",
-        ("panelFamily", "cycle") => "Cycle panel style",
-        ("session", "toggle") => "Session dialog",
+        ("panelFamily", "cycle") => "Next panel style",
+        ("session", "toggle") => "Power menu",
         ("browser", "open") => "Browser",
         ("audio", "volumeUp") => "Volume up",
         ("audio", "volumeDown") => "Volume down",
@@ -101,11 +110,11 @@ fn ipc_name(target: &str, func: &str) -> Option<&'static str> {
         ("audio", "micMute") => "Mute microphone",
         ("brightness", "increment") => "Brightness up",
         ("brightness", "decrement") => "Brightness down",
-        ("mpris", "playPause") => "Play/Pause",
+        ("mpris", "playPause") => "Play or pause",
         ("mpris", "next") => "Next track",
         ("mpris", "previous") => "Previous track",
         ("notifications", "clearAll") => "Clear notifications",
-        ("gamemode", "toggle") => "Toggle game mode",
+        ("gamemode", "toggle") => "Game mode",
         ("launcher", "terminal") => "Terminal",
         ("launcher", "close-window") => "Close window",
         _ => return None,
@@ -131,10 +140,26 @@ fn parse_inir_action(action: &str) -> Option<(String, String)> {
     DIRECT.captures(action).map(|c| (c[1].to_string(), c[2].to_string()))
 }
 
+/// The words of a size step, as the shell's other compositors say them: a bare number is logical pixels.
+pub(crate) fn resize_label(what: &str, change: &str) -> String {
+    let column = what.contains("column");
+    let amount = change.trim_start_matches(['+', '-']);
+    let unit = if amount.ends_with('%') { "" } else { " px" };
+    let words = match (change.chars().next(), column) {
+        (Some('-'), true) => "Shrink column",
+        (Some('-'), false) => "Shrink window",
+        (Some('+'), true) => "Grow column",
+        (Some('+'), false) => "Grow window",
+        (_, true) => "Column width",
+        (_, false) => "Window height",
+    };
+    format!("{words} {amount}{unit}")
+}
+
 fn generate_comment(action: &str) -> String {
     static RECENT: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r"^(next|previous)-window\b(.*)"));
-    static WORKSPACE: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r"^(focus-workspace|move-column-to-workspace)\s+(\d+)"));
-    static RESIZE: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r#"^set-(column-width|window-height)\s+"([+-]\d+%?)""#));
+    static WORKSPACE: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r"^(focus-workspace|move-column-to-workspace|move-window-to-workspace)\s+(\d+)"));
+    static RESIZE: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r#"^set-(column-width|window-height)\s+"([+-]?\d+%?)""#));
     static IPC_ANY: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r#"ipc.*call.*"(\w+)".*"(\w+)""#));
     static SPAWN: LazyLock<Regex> = LazyLock::new(|| pyrt::re(r#"spawn\s+"([^"]+)""#));
     let action = action.trim();
@@ -142,17 +167,16 @@ fn generate_comment(action: &str) -> String {
         return name.into();
     }
     if let Some(c) = RECENT.captures(action) {
+        let way = if &c[1] == "next" { "Next" } else { "Previous" };
         let same_app = if c[2].contains("app-id") { " of this app" } else { "" };
-        return format!("Recent windows{same_app} ({})", &c[1]);
+        return format!("{way} window{same_app}");
     }
     if let Some(c) = WORKSPACE.captures(action) {
-        let verb = if c[1].contains("focus") { "Focus" } else { "Move to" };
+        let verb = if c[1].contains("focus") { "Focus" } else if c[1].contains("window") { "Move window to" } else { "Move to" };
         return format!("{verb} workspace {}", &c[2]);
     }
     if let Some(c) = RESIZE.captures(action) {
-        let target = if c[1].contains("column") { "column" } else { "window" };
-        let direction = if c[2].starts_with('-') { "Shrink" } else { "Grow" };
-        return format!("{direction} {target} {}", c[2].trim_start_matches(&['+', '-'][..]));
+        return resize_label(&c[1], &c[2]);
     }
     if action.starts_with("spawn") {
         let ipc = parse_inir_action(action).or_else(|| IPC_ANY.captures(action).map(|c| (c[1].to_string(), c[2].to_string())));
@@ -174,7 +198,7 @@ fn generate_comment(action: &str) -> String {
                 return if action.contains('+') { "Volume up" } else { "Volume down" }.into();
             }
             if action.contains("set-mute") {
-                return "Mute toggle".into();
+                return "Mute audio".into();
             }
         }
         if action.contains("brightnessctl") || action.contains("light") {
@@ -197,7 +221,7 @@ fn categorize(bind: &Bind) -> &'static str {
     let action = bind.action.to_lowercase();
     let in_comment = |words: &[&str]| words.iter().any(|w| comment.contains(w));
     let in_action = |words: &[&str]| words.iter().any(|w| action.contains(w));
-    if in_comment(&["niri overview", "quit niri", "inhibit", "power off", "hotkey overlay"]) {
+    if in_comment(&["niri overview", "quit niri", "inhibit", "screens off", "hotkey overlay"]) {
         return "System";
     }
     if in_comment(&["inir ", "clipboard", "lock screen", "wallpaper", "settings", "cheatsheet", "panel style"]) {
@@ -206,9 +230,9 @@ fn categorize(bind: &Bind) -> &'static str {
     if let Some((target, _)) = parse_inir_action(&action) {
         match target.as_str() {
             "overlay" | "overview" | "clipboard" | "lock" | "wallpaperSelector" | "settings" | "cheatsheet" | "panelFamily"
-            | "session" => return "iNiR Shell",
+            | "session" | "taskview" | "search" => return "iNiR Shell",
             "altSwitcher" => return "Window Switcher",
-            "audio" | "mpris" => return "Media",
+            "audio" | "mpris" | "equalizer" => return "Media",
             "brightness" => return "Brightness",
             _ => {}
         }
@@ -219,7 +243,7 @@ fn categorize(bind: &Bind) -> &'static str {
     if comment.contains("window") && (comment.contains("next") || comment.contains("previous")) || action.contains("altswitcher") {
         return "Window Switcher";
     }
-    if in_comment(&["screenshot", "ocr", "image search"]) {
+    if in_comment(&["screenshot", "region"]) {
         return "Screenshots";
     }
     if in_comment(&["terminal", "file manager", "browser"]) || in_action(&TERMINALS) || in_action(&FILE_MANAGERS) || in_action(&BROWSERS) {
@@ -617,5 +641,34 @@ pub fn run_hyprland_cli(args: &[String]) -> i32 {
             0
         }
         Err(e) => pyrt::die(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_comment;
+
+    // The cheatsheet says Niri's binds in the words it uses on Rin and Umbriel, so one key translates all three.
+    #[test]
+    fn labels_match_the_shared_vocabulary() {
+        let cases = [
+            ("power-off-monitors", "Turn screens off"),
+            ("screenshot-window", "Screenshot the window"),
+            ("move-column-to-workspace-up", "Move to previous workspace"),
+            ("focus-workspace 3", "Focus workspace 3"),
+            ("move-window-to-workspace 2", "Move window to workspace 2"),
+            (r#"set-column-width "-10%""#, "Shrink column 10%"),
+            (r#"set-window-height "+50""#, "Grow window 50 px"),
+            (r#"set-column-width "800""#, "Column width 800 px"),
+            ("next-window", "Next window"),
+            (r#"previous-window filter="app-id""#, "Previous window of this app"),
+            (r#"spawn "inir" "region" "ocr""#, "Read text in a region"),
+            (r#"spawn "inir" "region" "window""#, "Screenshot the window"),
+            (r#"spawn "inir" "session" "toggle""#, "Power menu"),
+            (r#"spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle""#, "Mute audio"),
+        ];
+        for (action, label) in cases {
+            assert_eq!(generate_comment(action), label, "{action}");
+        }
     }
 }

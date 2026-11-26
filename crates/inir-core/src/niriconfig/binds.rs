@@ -69,14 +69,12 @@ fn generate_comment(action: &str) -> String {
     if let Some((_, d)) = KB_ACTION_MAP.iter().find(|(a, _)| *a == action) {
         return d.to_string();
     }
-    if let Some(c) = rx(r"^(focus-workspace|move-column-to-workspace)\s+([0-9]+)").captures(action) {
-        let verb = if c[1].contains("focus") { "Focus" } else { "Move to" };
+    if let Some(c) = rx(r"^(focus-workspace|move-column-to-workspace|move-window-to-workspace)\s+([0-9]+)").captures(action) {
+        let verb = if c[1].contains("focus") { "Focus" } else if c[1].contains("window") { "Move window to" } else { "Move to" };
         return format!("{verb} workspace {}", &c[2]);
     }
-    if let Some(c) = rx(r#"^set-(column-width|window-height)\s+"([+-][0-9]+%?)""#).captures(action) {
-        let target = if c[1].contains("column") { "column" } else { "window" };
-        let dir = if c[2].starts_with('-') { "Shrink" } else { "Grow" };
-        return format!("{dir} {target} {}", c[2].trim_start_matches(['+', '-']));
+    if let Some(c) = rx(r#"^set-(column-width|window-height)\s+"([+-]?[0-9]+%?)""#).captures(action) {
+        return crate::keybinds::resize_label(&c[1], &c[2]);
     }
     if action.starts_with("spawn") {
         if let Some((t, f)) = parse_inir_action(action) {
@@ -95,7 +93,7 @@ fn generate_comment(action: &str) -> String {
             return "Browser".into();
         }
         if action.contains("wpctl") {
-            return if action.contains("set-volume") { if action.contains('+') { "Volume up" } else { "Volume down" } } else { "Mute toggle" }.into();
+            return if action.contains("set-volume") { if action.contains('+') { "Volume up" } else { "Volume down" } } else { "Mute audio" }.into();
         }
         if action.contains("brightnessctl") || action.contains("light") {
             return if action.contains('+') || action.contains("inc") { "Brightness up" } else { "Brightness down" }.into();
@@ -115,7 +113,7 @@ fn categorize(description: &str, action: &str) -> &'static str {
     let act = action.to_lowercase();
     let d_any = |xs: &[&str]| xs.iter().any(|x| desc.contains(x));
     let a_any = |xs: &[&str]| xs.iter().any(|x| act.contains(x));
-    if d_any(&["niri overview", "quit niri", "inhibit", "power off", "hotkey overlay"]) {
+    if d_any(&["niri overview", "quit niri", "inhibit", "screens off", "hotkey overlay"]) {
         return "System";
     }
     if d_any(&["inir ", "clipboard", "lock screen", "wallpaper", "settings", "cheatsheet", "panel style"]) {
@@ -123,9 +121,9 @@ fn categorize(description: &str, action: &str) -> &'static str {
     }
     if let Some((target, _)) = parse_inir_action(action) {
         match target.as_str() {
-            "overlay" | "overview" | "clipboard" | "lock" | "wallpaperSelector" | "settings" | "cheatsheet" | "panelFamily" | "session" => return "iNiR Shell",
+            "overlay" | "overview" | "clipboard" | "lock" | "wallpaperSelector" | "settings" | "cheatsheet" | "panelFamily" | "session" | "taskview" | "search" => return "iNiR Shell",
             "altSwitcher" => return "Window Switcher",
-            "audio" | "mpris" => return "Media",
+            "audio" | "mpris" | "equalizer" => return "Media",
             "brightness" => return "Brightness",
             _ => {}
         }
@@ -136,7 +134,7 @@ fn categorize(description: &str, action: &str) -> &'static str {
     if desc.contains("window") && (desc.contains("next") || desc.contains("previous")) || act.contains("altswitcher") {
         return "Window Switcher";
     }
-    if d_any(&["screenshot", "ocr", "image search"]) {
+    if d_any(&["screenshot", "region"]) {
         return "Screenshots";
     }
     if d_any(&["terminal", "file manager", "browser"]) || a_any(TERMINALS) || a_any(FILE_MANAGERS) || a_any(BROWSERS) {
