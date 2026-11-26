@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "inir-accel"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "inir-core",
  "rayon",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "inir-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "image",
  "jpeg-decoder",
@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "inir-qml-plugin"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "cxx",
  "cxx-qt",
